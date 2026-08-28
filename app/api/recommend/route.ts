@@ -17,6 +17,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Opus at high effort can take a while; Vercel Pro allows up to 300s
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
+// Identity-linked API keys must say which workspace the request acts in; plain keys ignore it.
+const WORKSPACE_ID = process.env.ANTHROPIC_WORKSPACE_ID;
 const AVAILABLE_LIMIT = 80;
 
 // Warm-lambda cache of the trimmed player pool (Sleeper asks for <=1 players call/day).
@@ -109,7 +111,7 @@ export async function POST(request: Request) {
   });
 
   // 3. Claude.
-  const client = new Anthropic();
+  const client = new Anthropic(WORKSPACE_ID ? { defaultHeaders: { "anthropic-workspace-id": WORKSPACE_ID } } : {});
   try {
     const response = await client.beta.messages.parse({
       model: MODEL,
@@ -142,6 +144,8 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) return NextResponse.json({ error: "Claude API key rejected." }, { status: 500 });
+    if (e instanceof Anthropic.BadRequestError && e.message.includes("anthropic-workspace-id"))
+      return NextResponse.json({ error: "This Claude key is identity-linked: set ANTHROPIC_WORKSPACE_ID on the server to the workspace id it should act in, then restart." }, { status: 500 });
     if (e instanceof Anthropic.RateLimitError) return NextResponse.json({ error: "Claude rate limit hit; retry in a few seconds." }, { status: 429 });
     if (e instanceof Anthropic.APIError) return NextResponse.json({ error: `Claude API error ${e.status}: ${e.message}` }, { status: 502 });
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
