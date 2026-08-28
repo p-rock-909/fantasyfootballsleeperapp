@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.btn {
+  @apply inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.btn-primary { @apply bg-emerald-600 hover:bg-emerald-500 text-white; }
+.btn-ghost { @apply bg-zinc-800 hover:bg-zinc-700 text-zinc-100; }
+.input { @apply w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none; }
+.card { @apply rounded-lg border border-zinc-800 bg-zinc-900/60 p-4; }
+.pill { @apply inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold; }
+.pos-QB { @apply bg-red-900/60 text-red-200; }
+.pos-RB { @apply bg-emerald-900/60 text-emerald-200; }
+.pos-WR { @apply bg-sky-900/60 text-sky-200; }
+.pos-TE { @apply bg-amber-900/60 text-amber-200; }
+.pos-K { @apply bg-zinc-700 text-zinc-200; }
+.pos-DEF { @apply bg-purple-900/60 text-purple-200; }

@@ -1,0 +1,175 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, getPlayers } from "@/lib/client";
+import { leagueFormat, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
+import { resolveMySlot, secondsLeft, turnInfo } from "@/lib/draftMath";
+import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
+import { byeForTeam } from "@/lib/players";
+import { analyzeRoster } from "@/lib/rosterNeeds";
+import { loadRankings, loadSettings, updateSettings as persistSettings, useSettings, type Settings } from "@/lib/storage";
+import type { RecommendationResponse } from "@/lib/schema";
+import AvailablePlayers from "./AvailablePlayers";
+import Recommendations from "./Recommendations";
+import MyRoster from "./MyRoster";
+import SettingsDrawer from "./SettingsDrawer";
+import RankingsImport from "./RankingsImport";
+
+const POLL_DRAFTING_MS = 5000;
+const POLL_IDLE_MS = 30000;
+
+export interface RecState {
+  loading: boolean;
+  forPick: number | null;
+  data: RecommendationResponse | null;
+  error: string | null;
+  meta?: { model: string; usage?: unknown } | null;
+}
+
+export default function DraftBoard({ draftId }: { draftId: string }) {
+  const [settings] = useSettings();
+  const [draft, setDraft] = useState<SleeperDraft | null>(null);
+  const [league, setLeague] = useState<SleeperLeague | null>(null);
+  const [picks, setPicks] = useState<SleeperPick[]>([]);
+  const [players, setPlayers] = useState<Player[] | null>(null);
+  const [rankings, setRankings] = useState<RankingRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [rec, setRec] = useState<RecState>({ loading: false, forPick: null, data: null, error: null });
+  const [panel, setPanel] = useState<"none" | "settings" | "rankings">("none");
+  const [question, setQuestion] = useState("");
+  const lastAutoPick = useRef<number | null>(null);
+
+  // Initial load
+  useEffect(() => {
+    (async () => {
+      try {
+        if (loadSettings().draftId !== draftId) persistSettings({ draftId, mySlotOverride: null });
+        const rk = loadRankings();
+        const [d, p, pl] = await Promise.all([api.draft(draftId), api.picks(draftId), getPlayers()]);
+        setRankings(rk); setDraft(d); setPicks(p); setPlayers(pl);
+        if (d.league_id) api.league(d.league_id).then(setLeague).catch(() => null);
+      } catch (e) { setErr((e as Error).message); }
+    })();
+  }, [draftId]);
+
+  // Poll picks + draft status
+  useEffect(() => {
+    if (!draft) return;
+    const ms = draft.status === "drafting" ? POLL_DRAFTING_MS : POLL_IDLE_MS;
+    const t = setInterval(async () => {
+      try {
+        const [p, d] = await Promise.all([api.picks(draftId), api.draft(draftId)]);
+        setPicks((prev) => (p.length !== prev.length ? p : prev));
+        setDraft((prev) => (prev && prev.status === d.status && prev.last_picked === d.last_picked ? prev : d));
+      } catch { /* transient */ }
+    }, ms);
+    return () => clearInterval(t);
+  }, [draft, draftId]);
+
+  // Clock tick
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+
+  const fmt = useMemo(() => (draft ? leagueFormat(draft, league) : null), [draft, league]);
+  const mySlot = useMemo(() => (draft && settings ? resolveMySlot(draft, settings.userId, settings.mySlotOverride) : null), [draft, settings]);
+  const turn = useMemo(() => (draft ? turnInfo(draft, picks, mySlot) : null), [draft, picks, mySlot]);
+  const ranked = useMemo(() => (players ? mergeRankings(players, rankings, byeForTeam) : []), [players, rankings]);
+  const byId = useMemo(() => new Map(ranked.map((p) => [p.id, p])), [ranked]);
+  const taken = useMemo(() => new Set(picks.map((p) => p.player_id)), [picks]);
+  const available = useMemo(() => ranked.filter((p) => !taken.has(p.id)), [ranked, taken]);
+  const myRoster = useMemo<RankedPlayer[]>(
+    () => (mySlot ? picks.filter((p) => p.draft_slot === mySlot).map((p) => byId.get(p.player_id)).filter((p): p is RankedPlayer => !!p) : []),
+    [picks, mySlot, byId],
+  );
+  const analysis = useMemo(() => (fmt ? analyzeRoster(myRoster, fmt.slots, (p) => (p as RankedPlayer).bye ?? null) : null), [fmt, myRoster]);
+
+  const recommend = useCallback(async (q?: string) => {
+    if (!settings || !turn) return;
+    setRec({ loading: true, forPick: turn.currentPick, data: null, error: null });
+    try {
+      const res = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(settings.appPassword ? { "x-app-password": settings.appPassword } : {}) },
+        body: JSON.stringify({
+          draftId, effort: settings.effort, mySlot,
+          rankings: rankings?.filter((r) => r.playerId).map((r) => ({ playerId: r.playerId, rank: r.rank, adp: r.adp, tier: r.tier, bye: r.bye, proj: r.proj, posRank: r.posRank })) ?? null,
+          question: q || undefined,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setRec({ loading: false, forPick: body.meta.pick, data: body.recommendation, error: null, meta: body.meta });
+    } catch (e) {
+      setRec((r) => ({ ...r, loading: false, error: (e as Error).message }));
+    }
+  }, [settings, turn, draftId, mySlot, rankings]);
+
+  // Auto-recommend when a new pick lands and we're close to our turn.
+  useEffect(() => {
+    if (!settings?.autoRecommend || !turn || !draft || draft.status !== "drafting" || turn.isComplete) return;
+    if (rec.loading) return;
+    if (turn.picksUntilMyTurn > settings.autoWithinPicks) return;
+    if (lastAutoPick.current === turn.currentPick) return;
+    lastAutoPick.current = turn.currentPick;
+    recommend();
+  }, [turn, settings, draft, rec.loading, recommend]);
+
+  const updateSettings = (patch: Partial<Settings>) => persistSettings(patch);
+
+  if (err) return <div className="p-6 text-red-300">{err} — <Link className="underline" href="/">back to setup</Link></div>;
+  if (!draft || !turn || !fmt || !players || !settings) return <div className="p-6 text-zinc-400">Loading draft…</div>;
+
+  const clock = secondsLeft(draft, now);
+  const staleRec = rec.data && rec.forPick !== turn.currentPick;
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <Link href="/" className="text-zinc-400 hover:text-zinc-200">← Setup</Link>
+          <span className="font-semibold">{draft.metadata?.name || league?.name || `Draft ${draftId}`}</span>
+          <span className="text-zinc-500">{fmt.teams} tm · {fmt.scoring}{fmt.superflex ? " · SF" : ""}{fmt.tePremium ? " · TEP" : ""} · {draft.type}</span>
+          <span className={`pill ${draft.status === "drafting" ? "bg-emerald-900 text-emerald-200" : "bg-zinc-800 text-zinc-300"}`}>{draft.status.replace("_", " ")}</span>
+          <span className="text-zinc-300">Pick <b>{Math.min(turn.currentPick, turn.totalPicks)}</b>/{turn.totalPicks} · Rd {turn.round}</span>
+          {mySlot ? (
+            turn.onTheClock ? <span className="rounded bg-emerald-500 px-2 py-0.5 font-bold text-zinc-950">YOU&apos;RE ON THE CLOCK{clock != null ? ` · ${clock}s` : ""}</span>
+              : turn.isComplete ? <span className="text-zinc-400">Draft complete</span>
+              : <span className="text-zinc-300">Your pick in <b>{turn.picksUntilMyTurn}</b> (#{turn.myNextPicks[0]}){clock != null ? ` · slot ${turn.slotOnClock} has ${clock}s` : ""}</span>
+          ) : (
+            <span className="text-amber-300">Pick your draft slot →</span>
+          )}
+          <select className="input !w-auto !py-1" value={mySlot ?? ""} onChange={(e) => updateSettings({ mySlotOverride: e.target.value ? Number(e.target.value) : null })}>
+            <option value="">My slot…</option>
+            {Array.from({ length: fmt.teams }, (_, i) => i + 1).map((s) => <option key={s} value={s}>Slot {s}</option>)}
+          </select>
+          <div className="ml-auto flex gap-2">
+            <button className="btn btn-ghost" onClick={() => setPanel(panel === "rankings" ? "none" : "rankings")}>
+              Rankings {rankings ? <span className="pill bg-emerald-900 text-emerald-200">{rankings.filter((r) => r.playerId).length}</span> : <span className="pill bg-amber-900 text-amber-200">none</span>}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setPanel(panel === "settings" ? "none" : "settings")}>⚙ Settings</button>
+          </div>
+        </div>
+      </header>
+
+      {panel === "rankings" && <RankingsImport players={players} onChange={(rows) => { setRankings(rows); }} onClose={() => setPanel("none")} />}
+      {panel === "settings" && <SettingsDrawer settings={settings} onChange={updateSettings} onClose={() => setPanel("none")} />}
+
+      <main className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_1.1fr_0.8fr]">
+        <AvailablePlayers players={available} turn={turn} />
+        <Recommendations
+          rec={rec}
+          stale={!!staleRec}
+          onRecommend={() => recommend(question)}
+          question={question}
+          setQuestion={setQuestion}
+          byId={byId}
+          canRun={!turn.isComplete}
+          effort={settings.effort}
+          setEffort={(effort) => updateSettings({ effort })}
+        />
+        <MyRoster roster={myRoster} analysis={analysis} fmt={fmt} picks={picks} mySlot={mySlot} byId={byId} />
+      </main>
+    </div>
+  );
+}

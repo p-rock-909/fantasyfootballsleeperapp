@@ -1,0 +1,90 @@
+# Sleeper Draft Assistant
+
+A live draft board for [Sleeper](https://sleeper.com) fantasy football leagues that asks Claude which player to take next — using **your** preference document, your league's exact scoring/roster settings, the live board, and an imported rankings/ADP sheet.
+
+Built with Next.js (App Router) and deploys to Vercel with no database.
+
+## How it works
+
+```
+Browser ── polls Sleeper every 5s ──▶ /api/sleeper/*  (read-only proxy → api.sleeper.app)
+        ── once a day ──────────────▶ /api/players    (trimmed 1,000-player pool, CDN-cached 24h)
+        ── "Recommend" / auto ──────▶ /api/recommend  → Claude (claude-opus-5, structured JSON)
+                                      reads content/preferences.md + your pasted rankings
+```
+
+All the counting is done in code, not by the model: whose turn it is, how many picks until yours, which slots pick in between and what they need, your unfilled starter slots, bye-week pile-ups, tier drop-offs, and a **P(gone before your next pick)** estimate from ADP. Claude gets those facts plus your preferences and makes the judgment call. Output is validated against a schema, so the UI always shows a top pick, alternates, "won't survive to your next pick," "targets for the following pick," and warnings.
+
+## Setup
+
+1. **Install**
+   ```bash
+   npm install
+   cp .env.example .env.local   # then put your Claude API key in ANTHROPIC_API_KEY
+   npm run dev
+   ```
+2. **Write your preferences** in [`content/preferences.md`](content/preferences.md). Plain prose is fine; the template lists what matters most (strategy archetype, positional rules, risk tolerance, targets/avoids, stacking, league quirks). This file is the highest-authority input to every recommendation.
+3. **Open the app**, enter your Sleeper username → pick your league → draft. Or paste any draft URL/ID (mock drafts work — choose your slot in the header).
+4. **Import rankings** (Rankings button). Either export a CSV from FantasyPros / ESPN / Sleeper ADP, or fill in the template described below. Without rankings the app falls back to Sleeper's own ordering and Claude leans on its own player knowledge — noticeably weaker, so do this before draft day.
+
+### Rankings CSV
+
+[`content/rankings-template.csv`](content/rankings-template.csv) is pre-filled with the current 252-player pool (200 skill players in Sleeper's default order, then 20 kickers, then all 32 defenses) so you only have to fill in the numbers. Open it in Excel or Sheets, edit, save as CSV, and load it with **Choose file** in the Rankings panel.
+
+| Column | Fill in? | Notes |
+|---|---|---|
+| `RK` | **yes** | Your overall ranking. Pre-filled 1–252 as a starting point — reorder rows and renumber, or just edit values. This drives the board order. |
+| `TIER` | recommended | Group players of similar value (1, 1, 1, 2, 2, …). Powers "last player in tier 3 — take him now" reasoning. Highest-value column after `RK`. |
+| `PLAYER NAME` / `POS` / `TEAM` | pre-filled | From Sleeper. Leave alone — these are what rows get matched on. |
+| `BYE` | recommended | **Not pre-filled** (Sleeper's API doesn't expose bye weeks). Without it, bye-week clash warnings won't fire. |
+| `ADP` | recommended | Average draft position. Drives the "P(gone before your next pick)" estimate — the single most useful signal for deciding whether to wait on a player. |
+| `PROJ` | optional | Projected season points. |
+
+Every column except the name is optional; anything you leave blank is simply not used. Partial fills are fine — e.g. tiers and ADP for the top 100 only. To regenerate the template against an updated roster (post-cuts, post-trade):
+
+```bash
+npm run rankings-template
+```
+
+Common exports work as-is too: header names like `Player`, `Overall`, `ECR`, `AVG PICK`, `Bye Week`, `Pos Rank`, `FPTS` are all recognized, tab-separated files are accepted, and `RB1`-style position cells are split into position + positional rank. The import panel reports how many rows matched, so you can spot a bad export immediately.
+
+During the draft the board refreshes every 5 seconds. By default a recommendation auto-runs whenever a pick lands and you're within 3 picks of your turn, so the answer is waiting when you're on the clock. The effort selector (fast / balanced / deep) trades depth for speed; "balanced" is a good choice on a 60-second clock.
+
+## Deploy to Vercel
+
+```bash
+npx vercel
+```
+Set environment variables in the Vercel project:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | yes | Server-side Claude key; never sent to the browser |
+| `APP_PASSWORD` | recommended | If set, `/api/recommend` requires the same value entered in the app's Settings drawer — stops strangers from spending your key on a public URL |
+| `ANTHROPIC_MODEL` | no | Override the model (default `claude-opus-5`) |
+
+`content/preferences.md` deploys with the app — edit it, push, redeploy. Rankings and your Sleeper IDs live in your browser's localStorage.
+
+Note: `/api/recommend` sets `maxDuration = 300`. On the Vercel Hobby plan functions are capped lower (60s at the time of writing); use "fast"/"balanced" effort there, or upgrade to Pro for "deep".
+
+## Dry run before draft day
+
+Create a mock draft on Sleeper, paste its URL into the setup page, pick your slot, and draft a few rounds. That exercises everything: polling, the on-the-clock banner and countdown, auto-recommend, and rankings matching. A completed draft ID from a previous season also works for a static check.
+
+`npm run smoke` (with `npm run dev` running) exercises the draft-order math, roster-needs engine, and CSV matcher against live Sleeper data.
+
+## Project layout
+
+```
+app/                 pages + route handlers (players, sleeper proxy, recommend)
+components/          SetupForm, DraftBoard, AvailablePlayers, Recommendations, MyRoster, RankingsImport, SettingsDrawer
+lib/sleeper.ts       Sleeper types, fetch helper, league-format derivation
+lib/draftMath.ts     snake/linear/reversal order, picks-until-my-turn, pick clock
+lib/rosterNeeds.ts   starters/flex/bench gaps, bye clashes
+lib/rankings.ts      CSV parsing, name normalization, matching to Sleeper ids, merge
+lib/availability.ts  P(gone) model, tier summary
+lib/prompt.ts        system prompt (strategy + league + preferences) and draft-state message
+lib/schema.ts        zod schemas for the request and Claude's structured output
+content/preferences.md   your draft philosophy — edit this
+proxy.ts             optional APP_PASSWORD gate
+```
