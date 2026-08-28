@@ -20,6 +20,7 @@ export const api = {
   draft: (draftId: string) => j<SleeperDraft>(`/api/sleeper/draft/${draftId}`),
   picks: (draftId: string) => j<SleeperPick[]>(`/api/sleeper/draft/${draftId}/picks`),
   leagueUsers: (leagueId: string) => j<SleeperUser[]>(`/api/sleeper/league/${leagueId}/users`),
+  rankingsTemplate: () => j<{ csv: string | null; source: string }>("/api/rankings"),
 };
 
 export async function getPlayers(force = false): Promise<Player[]> {

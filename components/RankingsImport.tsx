@@ -31,7 +31,7 @@ export default function RankingsImport({ players, onChange, onClose }: { players
     <div className="border-b border-zinc-800 bg-zinc-900 px-4 py-3">
       <div className="flex items-center gap-2">
         <h2 className="font-semibold">Import rankings / ADP (CSV)</h2>
-        <span className="text-xs text-zinc-500">Export from FantasyPros, ESPN, Sleeper ADP, or fill in <code className="rounded bg-zinc-800 px-1">content/rankings-template.csv</code>. Needs a name column; rank, ADP, tier, bye, projections and position are auto-detected.</span>
+        <span className="text-xs text-zinc-500">The bundled <code className="rounded bg-zinc-800 px-1">content/rankings-template.csv</code> is loaded by default — import to replace it, Clear to go back to it. Export from FantasyPros, ESPN, or Sleeper ADP; needs a name column, rank, ADP, tier, bye, projections and position are auto-detected.</span>
         <button className="btn btn-ghost ml-auto" onClick={onClose}>Close</button>
       </div>
       <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto]">

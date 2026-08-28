@@ -12,6 +12,7 @@ import { turnInfo } from "@/lib/draftMath";
 import { analyzeRoster } from "@/lib/rosterNeeds";
 import { probGone, tierSummary } from "@/lib/availability";
 import { buildSystemPrompt, buildUserMessage, needsSummary } from "@/lib/prompt";
+import { defaultRankingRows } from "@/lib/defaultRankings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Opus at high effort can take a while; Vercel Pro allows up to 300s
@@ -60,9 +61,10 @@ export async function POST(request: Request) {
 
   // 2. Deterministic draft math.
   const fmt = leagueFormat(draft, league);
-  const rankingRows: RankingRow[] | null = req.rankings
+  // The browser sends what it has; with nothing imported, fall back to the bundled template.
+  const rankingRows: RankingRow[] | null = req.rankings?.length
     ? req.rankings.map((r) => ({ name: "", pos: null, team: null, ...r }))
-    : null;
+    : await defaultRankingRows(players);
   const ranked = mergeRankings(players, rankingRows, byeForTeam);
   const byId = new Map(ranked.map((p) => [p.id, p]));
   const takenIds = new Set(picks.map((p) => p.player_id));

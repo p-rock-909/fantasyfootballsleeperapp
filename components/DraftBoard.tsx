@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, getPlayers } from "@/lib/client";
 import { leagueFormat, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
 import { resolveMySlot, secondsLeft, turnInfo } from "@/lib/draftMath";
-import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
+import { mergeRankings, parseRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
 import { byeForTeam } from "@/lib/players";
 import { analyzeRoster } from "@/lib/rosterNeeds";
 import { appendRecLog, clearRecLog, loadRankings, loadSettings, newRecId, updateSettings as persistSettings, useRecLog, useSettings, type Settings } from "@/lib/storage";
@@ -36,6 +36,8 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
   const [picks, setPicks] = useState<SleeperPick[]>([]);
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [rankings, setRankings] = useState<RankingRow[] | null>(null);
+  // Bundled template, used until (and again after clearing) an import of your own.
+  const [template, setTemplate] = useState<RankingRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [rec, setRec] = useState<RecState>({ loading: false, forPick: null, data: null, error: null });
@@ -51,6 +53,9 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
         const rk = loadRankings();
         const [d, p, pl] = await Promise.all([api.draft(draftId), api.picks(draftId), getPlayers()]);
         setRankings(rk); setDraft(d); setPicks(p); setPlayers(pl);
+        api.rankingsTemplate()
+          .then(({ csv }) => setTemplate(csv ? parseRankings(csv, pl).rows.filter((r) => r.playerId) : null))
+          .catch(() => null);
         if (d.league_id) api.league(d.league_id).then(setLeague).catch(() => null);
       } catch (e) { setErr((e as Error).message); }
     })();
@@ -76,7 +81,9 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
   const fmt = useMemo(() => (draft ? leagueFormat(draft, league) : null), [draft, league]);
   const mySlot = useMemo(() => (draft && settings ? resolveMySlot(draft, settings.userId, settings.mySlotOverride) : null), [draft, settings]);
   const turn = useMemo(() => (draft ? turnInfo(draft, picks, mySlot) : null), [draft, picks, mySlot]);
-  const ranked = useMemo(() => (players ? mergeRankings(players, rankings, byeForTeam) : []), [players, rankings]);
+  // Your import wins; the template fills in until there is one.
+  const activeRankings = rankings ?? template;
+  const ranked = useMemo(() => (players ? mergeRankings(players, activeRankings, byeForTeam) : []), [players, activeRankings]);
   const byId = useMemo(() => new Map(ranked.map((p) => [p.id, p])), [ranked]);
   const taken = useMemo(() => new Set(picks.map((p) => p.player_id)), [picks]);
   const pickAt = useMemo(() => new Map(picks.map((p) => [p.pick_no, p])), [picks]);
@@ -99,7 +106,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
         headers: { "content-type": "application/json", ...(settings.appPassword ? { "x-app-password": settings.appPassword } : {}) },
         body: JSON.stringify({
           draftId, effort: settings.effort, mySlot,
-          rankings: rankings?.filter((r) => r.playerId).map((r) => ({ playerId: r.playerId, rank: r.rank, adp: r.adp, tier: r.tier, bye: r.bye, proj: r.proj, posRank: r.posRank })) ?? null,
+          rankings: activeRankings?.filter((r) => r.playerId).map((r) => ({ playerId: r.playerId, rank: r.rank, adp: r.adp, tier: r.tier, bye: r.bye, proj: r.proj, posRank: r.posRank })) ?? null,
           question: q || undefined,
         }),
       });
@@ -113,7 +120,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
       appendRecLog(draftId, { ...base, data: null, error: message, meta: null });
       setRec((r) => ({ ...r, loading: false, error: message, id }));
     }
-  }, [settings, turn, draftId, mySlot, rankings]);
+  }, [settings, turn, draftId, mySlot, activeRankings]);
 
   // Auto-recommend when a new pick lands and we're close to our turn.
   useEffect(() => {
@@ -155,7 +162,11 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
           </select>
           <div className="ml-auto flex gap-2">
             <button className="btn btn-ghost" onClick={() => setPanel(panel === "rankings" ? "none" : "rankings")}>
-              Rankings {rankings ? <span className="pill bg-emerald-900 text-emerald-200">{rankings.filter((r) => r.playerId).length}</span> : <span className="pill bg-amber-900 text-amber-200">none</span>}
+              Rankings {rankings
+                ? <span className="pill bg-emerald-900 text-emerald-200">{rankings.filter((r) => r.playerId).length}</span>
+                : template
+                ? <span className="pill bg-sky-900 text-sky-200" title="From the template bundled with the app — import your own to replace it">template · {template.length}</span>
+                : <span className="pill bg-amber-900 text-amber-200">none</span>}
             </button>
             <button className="btn btn-ghost" onClick={() => setPanel(panel === "settings" ? "none" : "settings")}>⚙ Settings</button>
           </div>
