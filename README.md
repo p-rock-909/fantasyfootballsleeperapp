@@ -27,7 +27,7 @@ All the counting is done in code, not by the model: whose turn it is, how many p
    ```
 2. **Write your preferences** in [`content/preferences.md`](content/preferences.md). Plain prose is fine; the template lists what matters most (strategy archetype, positional rules, risk tolerance, targets/avoids, stacking, league quirks). This file is the highest-authority input to every recommendation.
 3. **Open the app**, enter your Sleeper username → pick your league → draft. Or paste any draft URL/ID (mock drafts work — choose your slot in the header).
-4. **Import rankings** (Rankings button) — optional. [`content/rankings-template.csv`](content/rankings-template.csv) ships with the app and is used by default, so the board and every recommendation already have ranks, tiers, ADP and byes out of the box; the Rankings badge reads `template · 252`. Import your own CSV to replace it (the badge turns green), or **Clear** to fall back to the template again. Edit the template file and redeploy to change the default.
+4. **Import rankings** (Rankings button) — optional. [`content/rankings-template.csv`](content/rankings-template.csv) ships with the app and is used by default, so the board and every recommendation already have ranks, tiers, ADP and byes out of the box; the Rankings badge reads `template · 252`. **View template** in that panel shows exactly what the default contains — a filterable table of every row, the raw CSV behind a toggle, and **Load into editor** to start from it. Import your own CSV to replace it (the badge turns green), or **Clear** to fall back to the template again. Edit the template file and redeploy to change the default.
 
 ### Rankings CSV
 
