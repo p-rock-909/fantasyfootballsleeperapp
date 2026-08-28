@@ -8,7 +8,7 @@ import { resolveMySlot, secondsLeft, turnInfo } from "@/lib/draftMath";
 import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
 import { byeForTeam } from "@/lib/players";
 import { analyzeRoster } from "@/lib/rosterNeeds";
-import { loadRankings, loadSettings, updateSettings as persistSettings, useSettings, type Settings } from "@/lib/storage";
+import { appendRecLog, clearRecLog, loadRankings, loadSettings, newRecId, updateSettings as persistSettings, useRecLog, useSettings, type Settings } from "@/lib/storage";
 import type { RecommendationResponse } from "@/lib/schema";
 import AvailablePlayers from "./AvailablePlayers";
 import Recommendations from "./Recommendations";
@@ -25,17 +25,19 @@ export interface RecState {
   data: RecommendationResponse | null;
   error: string | null;
   meta?: { model: string; usage?: unknown } | null;
+  id?: string | null; // links the live card to its entry in the log
 }
 
 export default function DraftBoard({ draftId }: { draftId: string }) {
   const [settings] = useSettings();
+  const history = useRecLog(draftId);
   const [draft, setDraft] = useState<SleeperDraft | null>(null);
   const [league, setLeague] = useState<SleeperLeague | null>(null);
   const [picks, setPicks] = useState<SleeperPick[]>([]);
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [rankings, setRankings] = useState<RankingRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const [rec, setRec] = useState<RecState>({ loading: false, forPick: null, data: null, error: null });
   const [panel, setPanel] = useState<"none" | "settings" | "rankings">("none");
   const [question, setQuestion] = useState("");
@@ -77,6 +79,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
   const ranked = useMemo(() => (players ? mergeRankings(players, rankings, byeForTeam) : []), [players, rankings]);
   const byId = useMemo(() => new Map(ranked.map((p) => [p.id, p])), [ranked]);
   const taken = useMemo(() => new Set(picks.map((p) => p.player_id)), [picks]);
+  const pickAt = useMemo(() => new Map(picks.map((p) => [p.pick_no, p])), [picks]);
   const available = useMemo(() => ranked.filter((p) => !taken.has(p.id)), [ranked, taken]);
   const myRoster = useMemo<RankedPlayer[]>(
     () => (mySlot ? picks.filter((p) => p.draft_slot === mySlot).map((p) => byId.get(p.player_id)).filter((p): p is RankedPlayer => !!p) : []),
@@ -86,7 +89,10 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
 
   const recommend = useCallback(async (q?: string) => {
     if (!settings || !turn) return;
-    setRec({ loading: true, forPick: turn.currentPick, data: null, error: null });
+    const id = newRecId();
+    // Everything about the run that is known before the answer comes back.
+    const base = { id, at: Date.now(), forPick: turn.currentPick, round: turn.round, effort: settings.effort, question: q?.trim() || null };
+    setRec({ loading: true, forPick: turn.currentPick, data: null, error: null, id });
     try {
       const res = await fetch("/api/recommend", {
         method: "POST",
@@ -99,9 +105,13 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-      setRec({ loading: false, forPick: body.meta.pick, data: body.recommendation, error: null, meta: body.meta });
+      appendRecLog(draftId, { ...base, forPick: body.meta.pick ?? base.forPick, data: body.recommendation, error: null, meta: body.meta });
+      setRec({ loading: false, forPick: body.meta.pick, data: body.recommendation, error: null, meta: body.meta, id });
     } catch (e) {
-      setRec((r) => ({ ...r, loading: false, error: (e as Error).message }));
+      // Failed runs are logged too, so a bad answer never just disappears from the record.
+      const message = (e as Error).message;
+      appendRecLog(draftId, { ...base, data: null, error: message, meta: null });
+      setRec((r) => ({ ...r, loading: false, error: message, id }));
     }
   }, [settings, turn, draftId, mySlot, rankings]);
 
@@ -159,6 +169,10 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
         <AvailablePlayers players={available} turn={turn} />
         <Recommendations
           rec={rec}
+          history={history}
+          pickAt={pickAt}
+          draftId={draftId}
+          onClearHistory={() => clearRecLog(draftId)}
           stale={!!staleRec}
           onRecommend={() => recommend(question)}
           question={question}

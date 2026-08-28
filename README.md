@@ -50,6 +50,8 @@ Common exports work as-is too: header names like `Player`, `Overall`, `ECR`, `AV
 
 During the draft the board refreshes every 5 seconds. By default a recommendation auto-runs whenever a pick lands and you're within 3 picks of your turn, so the answer is waiting when you're on the clock. The effort selector (fast / balanced / deep) trades depth for speed; "balanced" is a good choice on a 60-second clock.
 
+Every answer is kept — failed runs included. **History** under the recommendation panel lists each past run (pick number, round, effort, the note you sent, and the pick that was actually made at that spot next to what Claude suggested); expanding one shows the full answer again, plus a **Raw** toggle with the exact JSON and token usage. **Download log** saves the whole draft as JSON. The log lives in your browser, is scoped to one draft, survives a reload, and is wiped by **Clear** in the panel or **Reset everything** in Settings.
+
 ## Deploy to Vercel
 
 ```bash
