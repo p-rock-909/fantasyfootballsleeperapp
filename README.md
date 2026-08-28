@@ -61,6 +61,7 @@ Set environment variables in the Vercel project:
 |---|---|---|
 | `ANTHROPIC_API_KEY` | yes | Server-side Claude key; never sent to the browser |
 | `APP_PASSWORD` | recommended | If set, `/api/recommend` requires the same value entered in the app's Settings drawer — stops strangers from spending your key on a public URL |
+| `ANTHROPIC_WORKSPACE_ID` | only for identity-linked keys | Workspace the request acts in, sent as the `anthropic-workspace-id` header. Without it such a key fails with `400 anthropic-workspace-id is required`. Find it in Console → Settings → Workspaces (the `wrkspc_…` id in the workspace URL) |
 | `ANTHROPIC_MODEL` | no | Override the model (default `claude-opus-5`) |
 
 `content/preferences.md` deploys with the app — edit it, push, redeploy. Rankings and your Sleeper IDs live in your browser's localStorage.
