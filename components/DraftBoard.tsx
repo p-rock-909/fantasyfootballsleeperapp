@@ -19,6 +19,13 @@ import RankingsImport from "./RankingsImport";
 const POLL_DRAFTING_MS = 5000;
 const POLL_IDLE_MS = 30000;
 
+/** The rankings template bundled with the app, as served by /api/rankings. */
+export interface Template {
+  csv: string;
+  source: string;
+  rows: RankingRow[];
+}
+
 export interface RecState {
   loading: boolean;
   forPick: number | null;
@@ -37,7 +44,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
   const [players, setPlayers] = useState<Player[] | null>(null);
   const [rankings, setRankings] = useState<RankingRow[] | null>(null);
   // Bundled template, used until (and again after clearing) an import of your own.
-  const [template, setTemplate] = useState<RankingRow[] | null>(null);
+  const [template, setTemplate] = useState<Template | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [rec, setRec] = useState<RecState>({ loading: false, forPick: null, data: null, error: null });
@@ -54,7 +61,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
         const [d, p, pl] = await Promise.all([api.draft(draftId), api.picks(draftId), getPlayers()]);
         setRankings(rk); setDraft(d); setPicks(p); setPlayers(pl);
         api.rankingsTemplate()
-          .then(({ csv }) => setTemplate(csv ? parseRankings(csv, pl).rows.filter((r) => r.playerId) : null))
+          .then(({ csv, source }) => setTemplate(csv ? { csv, source, rows: parseRankings(csv, pl).rows.filter((r) => r.playerId) } : null))
           .catch(() => null);
         if (d.league_id) api.league(d.league_id).then(setLeague).catch(() => null);
       } catch (e) { setErr((e as Error).message); }
@@ -82,7 +89,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
   const mySlot = useMemo(() => (draft && settings ? resolveMySlot(draft, settings.userId, settings.mySlotOverride) : null), [draft, settings]);
   const turn = useMemo(() => (draft ? turnInfo(draft, picks, mySlot) : null), [draft, picks, mySlot]);
   // Your import wins; the template fills in until there is one.
-  const activeRankings = rankings ?? template;
+  const activeRankings = rankings ?? template?.rows ?? null;
   const ranked = useMemo(() => (players ? mergeRankings(players, activeRankings, byeForTeam) : []), [players, activeRankings]);
   const byId = useMemo(() => new Map(ranked.map((p) => [p.id, p])), [ranked]);
   const taken = useMemo(() => new Set(picks.map((p) => p.player_id)), [picks]);
@@ -165,7 +172,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
               Rankings {rankings
                 ? <span className="pill bg-emerald-900 text-emerald-200">{rankings.filter((r) => r.playerId).length}</span>
                 : template
-                ? <span className="pill bg-sky-900 text-sky-200" title="From the template bundled with the app — import your own to replace it">template · {template.length}</span>
+                ? <span className="pill bg-sky-900 text-sky-200" title="From the template bundled with the app — import your own to replace it">template · {template.rows.length}</span>
                 : <span className="pill bg-amber-900 text-amber-200">none</span>}
             </button>
             <button className="btn btn-ghost" onClick={() => setPanel(panel === "settings" ? "none" : "settings")}>⚙ Settings</button>
@@ -173,7 +180,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
         </div>
       </header>
 
-      {panel === "rankings" && <RankingsImport players={players} onChange={(rows) => { setRankings(rows); }} onClose={() => setPanel("none")} />}
+      {panel === "rankings" && <RankingsImport players={players} template={template} onChange={(rows) => { setRankings(rows); }} onClose={() => setPanel("none")} />}
       {panel === "settings" && <SettingsDrawer settings={settings} onChange={updateSettings} onClose={() => setPanel("none")} />}
 
       <main className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_1.1fr_0.8fr]">
