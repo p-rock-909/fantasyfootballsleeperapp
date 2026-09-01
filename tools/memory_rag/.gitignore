@@ -1,0 +1,36 @@
+# Virtual environments
+mbie_env/
+memory_rag_env/
+venv/
+env/
+
+# Logs
+memory_rag.log
+*.log
+
+# Cache and temporary files
+__pycache__/
+*.pyc
+*.pyo
+.cache/
+
+# ChromaDB data
+.rag/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Configuration (only template should be versioned)
+config.yml
+
+# Data and logs (ephemeral data, not for version control)
+data/learning/**/*.json
+scripts/backup/**/*.json
+scripts/validation_*.json

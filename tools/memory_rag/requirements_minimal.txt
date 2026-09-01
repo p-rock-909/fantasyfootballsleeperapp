@@ -1,0 +1,10 @@
+# Minimal compatible dependencies for MBIE testing
+sentence-transformers==2.1.0
+transformers==4.21.3
+huggingface_hub==0.10.1
+chromadb==0.3.29
+click==8.1.7
+pyyaml==6.0.1
+rich==13.7.0
+numpy==1.24.3
+torch==1.13.1

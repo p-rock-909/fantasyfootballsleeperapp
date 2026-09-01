@@ -1,0 +1,21 @@
+# Core dependencies with pinned versions for deterministic builds
+chromadb==0.4.22
+sentence-transformers==2.2.2
+click==8.1.7
+pyyaml==6.0.1
+python-dotenv==1.0.0
+rich==13.7.0
+numpy==1.24.3
+torch==2.1.2
+tqdm==4.66.1
+
+# Optional dependencies for advanced features
+fastapi==0.109.0
+uvicorn==0.25.0
+
+# Development dependencies
+pytest==7.4.4
+pytest-cov==4.1.0
+black==23.12.1
+ruff==0.1.11
+mypy==1.8.0

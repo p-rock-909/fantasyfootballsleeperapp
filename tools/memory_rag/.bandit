@@ -1,0 +1,13 @@
+# Bandit security configuration for MBIE
+# B403: import_pickle - Pickle is safe for local cache files (not deserializing untrusted data)
+# B301: pickle.load - Used only for local embedding cache, not exposed to external input
+# B615: huggingface_unsafe_download - Hugging Face downloads are from trusted models
+
+exclude_dirs:
+  - /tests/
+  - /scripts/
+
+skips:
+  - B403
+  - B301
+  - B615

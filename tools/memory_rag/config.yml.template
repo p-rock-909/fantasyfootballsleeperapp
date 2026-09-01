@@ -1,0 +1,320 @@
+# MBIE Configuration File
+# All settings for deterministic and reproducible builds
+
+# Model configuration
+model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  version: "2.2.2"
+  device: "cpu"  # Use "cuda" if GPU available
+  batch_size: 32
+
+# Deterministic settings
+deterministic:
+  random_seed: 42
+  numpy_seed: 42
+  torch_seed: 42
+  enable: true
+
+# Chunking configuration
+chunking:
+  small_file_lines: 400   # 🟢 threshold
+  medium_file_lines: 600  # 🟡 threshold
+  chunk_size: 512         # Target tokens per chunk
+  chunk_overlap: 50       # Token overlap between chunks
+  section_regex: "^###?\\s+"  # Includes ### headers
+  use_token_based: true   # Use tokenizer for accurate token counting
+  max_tokens_per_chunk: 512  # Hard limit for token count
+
+  # Large file processing limits
+  executive_summary_lines: 100  # Max lines for executive summary extraction (min: 10, max: 1000)
+  section_preview_lines: 5      # Lines to include per section for large files (min: 1, max: 50)
+
+# Storage paths (relative to project root for portability)
+storage:
+  memory_bank_root: "../../memory-bank"
+  index_path: "../../memory-bank/.rag/index"
+  snapshots_path: "../../memory-bank/.rag/snapshots"
+  cache_path: "../../memory-bank/.rag/cache"
+  eval_path: "../../memory-bank/.rag/eval.yml"
+  analytics_path: "../../memory-bank/.rag/analytics.db"
+
+  # Additional business intelligence sources
+  additional_sources:
+    - "../../docs/"     # Documentation directory
+    - "../../scripts/"  # Operational workflows
+
+# Search configuration
+search:
+  top_k: 10
+  relevance_threshold: 0.3  # Balanced threshold for good results
+  hybrid_alpha: 0.7  # Weight for semantic vs keyword (0=keyword only, 1=semantic only)
+
+# Domain mappings - Customize for your use case
+domains:
+  # Current quarter/phase priorities
+  current_phase:
+    files:
+      - "../../docs/"
+      - "activeContext.md"
+      - "projectbrief.md"
+    boost: 2.0  # Highest priority for current work
+    keywords: ["current quarter", "sprint", "systematic", "scaling", "methodology"]
+
+  client_operations:
+    files:
+      - "../../docs/"
+      - "activeContext.md"
+    boost: 1.8  # High priority for ongoing client work
+    keywords: ["client", "deliverable", "milestone", "engagement", "project"]
+
+  business:
+    files:
+      - "personal-philosophy.md"
+      - "activeContext.md"
+      - "../../docs/"
+    boost: 1.6
+    keywords: ["client", "revenue", "business", "strategy"]
+
+  daily_operations:
+    files:
+      - "../../docs/"
+      - "../../scripts/"
+      - "activeContext.md"
+    boost: 1.7
+    keywords: ["today", "calendar", "schedule", "task", "priority", "focus", "meeting", "deadline"]
+
+  technical:
+    files:
+      - "features/"
+      - "systemPatterns.md"
+      - "techContext.md"
+    boost: 1.2
+    keywords: ["python", "automation", "workflow", "integration", "script"]
+
+  strategy:
+    files:
+      - "personal-philosophy.md"
+      - "projectbrief.md"
+    boost: 1.2
+    keywords: ["philosophy", "principles", "mindset", "approach"]
+
+# Intelligence configuration
+intelligence:
+  enabled: true
+
+  # Status parsing configuration
+  status_parsing:
+    checkbox_patterns:
+      completed: ['\[x\]', '\[X\]']
+      pending: ['\[ \]']
+      in_progress: ['\[-\]', '\[~\]']
+
+    progress_keywords:
+      completed: ['COMPLETED', '✅', 'DONE', 'FINISHED']
+      in_progress: ['IN PROGRESS', '🔄', 'CURRENT', 'WORKING']
+      pending: ['PENDING', '📋', 'TODO', 'UPCOMING']
+
+  # Temporal context configuration
+  temporal_context:
+    business_phases:
+      current_quarter: "Q4 2025"  # Update as needed
+      current_week: "Week 1"       # Update as needed
+      current_phase: "Planning"    # Update as needed
+
+    critical_dates:
+      phase_start: "2025-10-01"
+      phase_end: "2025-12-31"
+
+    # Live data integration for daily context
+    live_data_sources:
+      - "../../docs/daily/current.md"  # Today's priorities
+
+    refresh_frequency: "hourly"
+
+    relevance_decay:
+      current: 1.0
+      upcoming: 0.8
+      recent: 0.6
+      historical: 0.3
+
+  # Priority scoring configuration
+  priority_scoring:
+    keyword_multipliers:
+      "PRIMARY FOCUS": 2.0
+      "CRITICAL": 1.8
+      "CURRENT": 1.5
+      "urgent": 1.7
+      "deliverable": 1.4
+      "milestone": 1.4
+      "today": 1.3
+
+    hierarchy_boosts:
+      strategic: 1.3
+      tactical: 1.1
+      operational: 1.0
+
+    client_boosts:
+      current_client: 1.5
+      prospective_client: 1.2
+      general: 1.0
+
+  # Intelligence boost settings
+  boost_cap: 3.0
+  status_filtering_enabled: true
+  temporal_relevance_enabled: true
+  priority_boosting_enabled: true
+
+# Adaptive Learning Loop Configuration
+learning:
+  enabled: true
+
+  # Usage analytics
+  usage_tracking:
+    enabled: true
+    interaction_logging: true
+    session_tracking: true
+    satisfaction_inference: true
+    retention_days: 90
+
+  # Pattern analysis
+  pattern_analysis:
+    enabled: true
+    analysis_frequency: "weekly"
+    min_pattern_confidence: 0.7
+    min_frequency_threshold: 3
+    pattern_window_days: 14
+
+  # Automatic optimization
+  auto_optimization:
+    enabled: false  # Start with manual review
+    confidence_threshold: 0.8
+    max_adjustments_per_week: 5
+    learning_rate: 0.1
+
+  # Model management
+  model_management:
+    model_versioning: true
+    backup_frequency: "weekly"
+    validation_required: true
+    rollback_enabled: true
+
+# Analytics Configuration
+analytics:
+  enabled: true
+  database_path: "../../memory-bank/.rag/analytics.db"
+
+  # Database security
+  database_security:
+    encryption_enabled: false  # Set to true to enable SQLCipher encryption
+    encryption_key_path: "~/.config/mbie/db_encryption_key"
+
+  # Query tracking
+  query_tracking:
+    enabled: true
+    session_timeout: 1800  # 30 minutes
+    interaction_tracking: true
+    satisfaction_inference: true
+
+  # Pattern analysis
+  pattern_analysis:
+    min_pattern_frequency: 3
+    confidence_threshold: 0.7
+    learning_window_days: 14
+    update_frequency: "daily"
+
+    # Success metrics thresholds
+    success_thresholds:
+      min_time_spent: 30          # seconds for successful interaction
+      min_satisfaction_score: 0.7  # minimum satisfaction for success
+      min_success_rate: 0.6        # minimum success rate for patterns
+      min_engagement_time: 20      # average engagement time for success
+
+  # Usage optimization
+  usage_optimization:
+    navigation_updates: true
+    suggestion_engine: true
+    adaptation_rate: 0.1
+
+# Integration Configuration
+integrations:
+  enabled: true
+
+  # Google Calendar
+  google_calendar:
+    enabled: false  # Disabled by default, requires user setup
+    credentials_path: "~/.config/mbie/google_credentials.json"
+    timezone: "America/New_York"
+    sync_frequency: "hourly"
+    context_window_days: 7
+
+  # GitHub
+  github:
+    enabled: false  # Disabled by default
+    token_path: "~/.config/mbie/github_token"
+    repo: "owner/repo"  # Update with your repo
+    project_id: ""      # Update with your project ID
+    sync_frequency: "30m"
+
+  # Automation Suite
+  automation:
+    enabled: true
+    metrics_path: "../../automations/logs"
+    health_check_frequency: "daily"
+    performance_tracking: true
+
+# Advanced Learning Configuration
+learning_advanced:
+  enabled: true
+
+  # Adaptive navigation
+  adaptive_navigation:
+    enabled: true
+    update_threshold: 5  # queries before pattern recognition
+    confidence_threshold: 0.8
+    auto_update_navigation: false  # manual review initially
+
+  # Predictive context
+  predictive_context:
+    enabled: true
+    prediction_window_days: 3
+    confidence_threshold: 0.7
+    proactive_suggestions: true
+
+  # Business context learning
+  business_context:
+    phase_tracking: true
+    client_focus_detection: true
+    energy_pattern_learning: true
+    time_context_awareness: true
+
+# Automation configuration
+automation:
+  enabled: true
+  git_hooks: true            # Primary trigger method
+  file_watching: false       # Secondary method for development
+  silent_mode: true          # Suppress output for automated runs
+
+# Performance settings
+performance:
+  cache_ttl_seconds: 900  # 15 minutes
+  max_workers: 4
+  index_batch_size: 100
+
+# Quality gates and evaluation
+quality:
+  evaluation_dataset_version: "1.0.0"
+  min_relevance_threshold: 0.85
+  max_latency_threshold_ms: 500
+  min_coverage_threshold: 0.90
+
+  # Quality validation commands
+  validation_commands:
+    full_evaluation: "python -m tools.memory_rag.cli evaluate --full"
+    quick_validation: "python -m tools.memory_rag.cli evaluate --quick"
+    performance_check: "python -m tools.memory_rag.cli stats --performance"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "memory_rag.log"
