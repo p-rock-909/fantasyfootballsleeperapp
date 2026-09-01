@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { RecommendRequest } from "@/lib/schema";
+import { RecommendRequest, RecommendationResponse } from "@/lib/schema";
 import { activeProvider, LlmError } from "@/lib/llm";
 import { leagueFormat, sleeperFetch, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
 import { trimPlayers } from "@/lib/players";
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
 
   // 3. The evaluation provider (Gemini by default, Claude when LLM_PROVIDER=anthropic).
   try {
-    const result = await provider.recommend({ system, user, effort: req.effort });
+    const result = await provider.recommend({ system, user, effort: req.effort, schema: RecommendationResponse });
     const out = result.parsed;
     // Only trust ids that are actually on the board.
     const validIds = new Set(candidates.map((p) => p.id));

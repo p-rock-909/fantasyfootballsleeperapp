@@ -14,6 +14,7 @@ export interface RosterAnalysis {
 
 const FLEX_ELIGIBLE: Position[] = ["RB", "WR", "TE"];
 const REC_FLEX_ELIGIBLE: Position[] = ["WR", "TE"];
+const WRRB_FLEX_ELIGIBLE: Position[] = ["RB", "WR"];
 const SF_ELIGIBLE: Position[] = ["QB", "RB", "WR", "TE"];
 
 export function analyzeRoster(
@@ -39,9 +40,9 @@ export function analyzeRoster(
     }
     return open;
   };
-  const flexOpen = fill(slots.FLEX, FLEX_ELIGIBLE) + fill(slots.REC_FLEX, REC_FLEX_ELIGIBLE);
+  const flexOpen = fill(slots.FLEX, FLEX_ELIGIBLE) + fill(slots.REC_FLEX, REC_FLEX_ELIGIBLE) + fill(slots.WRRB_FLEX, WRRB_FLEX_ELIGIBLE);
   const superflexOpen = fill(slots.SUPER_FLEX, SF_ELIGIBLE);
-  const totalSlots = slots.QB + slots.RB + slots.WR + slots.TE + slots.K + slots.DEF + slots.FLEX + slots.REC_FLEX + slots.SUPER_FLEX + slots.BN;
+  const totalSlots = slots.QB + slots.RB + slots.WR + slots.TE + slots.K + slots.DEF + slots.FLEX + slots.REC_FLEX + slots.WRRB_FLEX + slots.SUPER_FLEX + slots.BN;
   const totalOpen = Math.max(0, totalSlots - roster.length);
   const benchUsed = (Object.values(leftover) as number[]).reduce((a, b) => a + b, 0);
   const benchOpen = Math.max(0, slots.BN - benchUsed);
