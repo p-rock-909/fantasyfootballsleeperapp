@@ -44,7 +44,7 @@ export default function Recommendations({ rec, history, pickAt, draftId, onClear
   return (
     <section className="card flex max-h-[calc(100vh-7rem)] flex-col">
       <div className="mb-2 flex items-center gap-2">
-        <h2 className="font-semibold">Claude&apos;s recommendation</h2>
+        <h2 className="font-semibold">Recommendation</h2>
         {rec.forPick && d && <span className="text-xs text-zinc-500">for pick #{rec.forPick}</span>}
         {stale && <span className="pill bg-amber-900 text-amber-200">board changed — refresh</span>}
         <div className="ml-auto flex items-center gap-2">
@@ -157,7 +157,7 @@ function HistoryEntry({ entry, byId, actual }: { entry: RecLogEntry; byId: Map<s
             <p className="text-xs text-zinc-400">
               Actually drafted at #{entry.forPick}: <b className="text-zinc-200">{actualName}</b>
               {actual?.metadata.position ? ` (${actual.metadata.position})` : ""}
-              {matched ? " — matched Claude's top pick" : ""}
+              {matched ? " — matched the top pick" : ""}
             </p>
           )}
           {entry.error && <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">{entry.error}</div>}
@@ -170,7 +170,7 @@ function HistoryEntry({ entry, byId, actual }: { entry: RecLogEntry; byId: Map<s
   );
 }
 
-/** Raw JSON of a response, for debugging what Claude actually returned. */
+/** Raw JSON of a response, for debugging what the model actually returned. */
 function Raw({ value }: { value: unknown }) {
   const [open, setOpen] = useState(false);
   const json = JSON.stringify(value, null, 2);

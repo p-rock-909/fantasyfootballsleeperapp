@@ -3,6 +3,7 @@
 // Browser-side persistence (localStorage). Everything is optional and guarded.
 import type { Player } from "./sleeper";
 import type { RankingRow } from "./rankings";
+import type { LlmUsage } from "./llm/types";
 import type { RecommendationResponse } from "./schema";
 
 export interface Settings {
@@ -81,9 +82,9 @@ export function useSettings(): [Settings | null, (patch: Partial<Settings>) => v
   return [s, update];
 }
 
-// ---- Recommendation log: every Claude response for a draft, newest first ----
+// ---- Recommendation log: every model response for a draft, newest first ----
 
-export interface RecMeta { model?: string; pick?: number; usage?: unknown; candidates?: number }
+export interface RecMeta { provider?: string; model?: string; pick?: number; usage?: LlmUsage; candidates?: number }
 
 export interface RecLogEntry {
   id: string;

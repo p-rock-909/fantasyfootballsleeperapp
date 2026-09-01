@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { RecommendRequest, RecommendationResponse } from "@/lib/schema";
+import { RecommendRequest } from "@/lib/schema";
+import { activeProvider, LlmError } from "@/lib/llm";
 import { leagueFormat, sleeperFetch, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
 import { trimPlayers } from "@/lib/players";
 import { byeForTeam } from "@/lib/players";
@@ -15,11 +14,8 @@ import { buildSystemPrompt, buildUserMessage, needsSummary } from "@/lib/prompt"
 import { defaultRankingRows } from "@/lib/defaultRankings";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // Opus at high effort can take a while; Vercel Pro allows up to 300s
+export const maxDuration = 300; // a deep run can take a while on either provider; Vercel Pro allows up to 300s
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
-// Identity-linked API keys must say which workspace the request acts in; plain keys ignore it.
-const WORKSPACE_ID = process.env.ANTHROPIC_WORKSPACE_ID;
 const AVAILABLE_LIMIT = 80;
 
 // Warm-lambda cache of the trimmed player pool (Sleeper asks for <=1 players call/day).
@@ -40,7 +36,14 @@ async function getPreferences(): Promise<string> {
 }
 
 export async function POST(request: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: "ANTHROPIC_API_KEY is not set on the server." }, { status: 500 });
+  let provider;
+  try {
+    provider = activeProvider();
+  } catch (e) {
+    return NextResponse.json({ error: (e as LlmError).message }, { status: 500 });
+  }
+  const configError = provider.configError();
+  if (configError) return NextResponse.json({ error: configError }, { status: 500 });
   const parsed = RecommendRequest.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Bad request", issues: parsed.error.issues }, { status: 400 });
   const req = parsed.data;
@@ -112,44 +115,25 @@ export async function POST(request: Request) {
     question: req.question, rankingsLoaded: !!rankingRows?.length,
   });
 
-  // 3. Claude.
-  const client = new Anthropic(WORKSPACE_ID ? { defaultHeaders: { "anthropic-workspace-id": WORKSPACE_ID } } : {});
+  // 3. The evaluation provider (Gemini by default, Claude when LLM_PROVIDER=anthropic).
   try {
-    const response = await client.beta.messages.parse({
-      model: MODEL,
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      output_config: { effort: req.effort, format: betaZodOutputFormat(RecommendationResponse) },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: user }],
-    });
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json({ error: "Claude declined this request.", detail: response.stop_details }, { status: 502 });
-    }
-    if (response.stop_reason === "max_tokens" || !response.parsed_output) {
-      return NextResponse.json({ error: "Claude's answer was cut off or unparseable; try again (or lower effort)." }, { status: 502 });
-    }
-    const out = response.parsed_output;
+    const result = await provider.recommend({ system, user, effort: req.effort });
+    const out = result.parsed;
     // Only trust ids that are actually on the board.
     const validIds = new Set(candidates.map((p) => p.id));
     out.picks = out.picks.filter((p) => validIds.has(p.player_id));
     return NextResponse.json({
       recommendation: out,
       meta: {
-        model: response.model,
+        provider: provider.name,
+        model: result.model,
         pick: turn.currentPick,
-        usage: response.usage,
+        usage: result.usage,
         candidates: candidates.length,
       },
     });
   } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) return NextResponse.json({ error: "Claude API key rejected." }, { status: 500 });
-    if (e instanceof Anthropic.BadRequestError && e.message.includes("anthropic-workspace-id"))
-      return NextResponse.json({ error: "This Claude key is identity-linked: set ANTHROPIC_WORKSPACE_ID on the server to the workspace id it should act in, then restart." }, { status: 500 });
-    if (e instanceof Anthropic.RateLimitError) return NextResponse.json({ error: "Claude rate limit hit; retry in a few seconds." }, { status: 429 });
-    if (e instanceof Anthropic.APIError) return NextResponse.json({ error: `Claude API error ${e.status}: ${e.message}` }, { status: 502 });
+    if (e instanceof LlmError) return NextResponse.json({ error: e.message, detail: e.detail }, { status: e.status });
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }

@@ -1,6 +1,6 @@
 # Sleeper Draft Assistant
 
-A live draft board for [Sleeper](https://sleeper.com) fantasy football leagues that asks Claude which player to take next — using **your** preference document, your league's exact scoring/roster settings, the live board, and a rankings/ADP sheet.
+A live draft board for [Sleeper](https://sleeper.com) fantasy football leagues that asks a model — Gemini by default, Claude optionally — which player to take next — using **your** preference document, your league's exact scoring/roster settings, the live board, and a rankings/ADP sheet.
 
 Built with Next.js (App Router) and deploys to Vercel with no database.
 
@@ -10,19 +10,19 @@ Built with Next.js (App Router) and deploys to Vercel with no database.
 Browser ── polls Sleeper every 5s ──▶ /api/sleeper/*  (read-only proxy → api.sleeper.app)
         ── once a day ──────────────▶ /api/players    (trimmed 1,000-player pool, CDN-cached 24h)
         ── on load ─────────────────▶ /api/rankings   (bundled rankings template, CDN-cached 24h)
-        ── "Recommend" / auto ──────▶ /api/recommend  → Claude (claude-opus-5, structured JSON)
+        ── "Recommend" / auto ──────▶ /api/recommend  → Gemini or Claude (structured JSON)
                                       reads content/preferences.md + your rankings
                                       (imported, else content/rankings-template.csv)
 ```
 
-All the counting is done in code, not by the model: whose turn it is, how many picks until yours, which slots pick in between and what they need, your unfilled starter slots, bye-week pile-ups, tier drop-offs, and a **P(gone before your next pick)** estimate from ADP. Claude gets those facts plus your preferences and makes the judgment call. Output is validated against a schema, so the UI always shows a top pick, alternates, "won't survive to your next pick," "targets for the following pick," and warnings.
+All the counting is done in code, not by the model: whose turn it is, how many picks until yours, which slots pick in between and what they need, your unfilled starter slots, bye-week pile-ups, tier drop-offs, and a **P(gone before your next pick)** estimate from ADP. The model gets those facts plus your preferences and makes the judgment call. Output is validated against a schema, so the UI always shows a top pick, alternates, "won't survive to your next pick," "targets for the following pick," and warnings.
 
 ## Setup
 
 1. **Install**
    ```bash
    npm install
-   cp .env.example .env.local   # then put your Claude API key in ANTHROPIC_API_KEY
+   cp .env.example .env.local   # then put your Gemini API key in GEMINI_API_KEY
    npm run dev
    ```
 2. **Write your preferences** in [`content/preferences.md`](content/preferences.md). Plain prose is fine; the template lists what matters most (strategy archetype, positional rules, risk tolerance, targets/avoids, stacking, league quirks). This file is the highest-authority input to every recommendation.
@@ -52,7 +52,7 @@ Common exports work as-is too: header names like `Player`, `Overall`, `ECR`, `AV
 
 During the draft the board refreshes every 5 seconds. By default a recommendation auto-runs whenever a pick lands and you're within 3 picks of your turn, so the answer is waiting when you're on the clock. The effort selector (fast / balanced / deep) trades depth for speed; "balanced" is a good choice on a 60-second clock.
 
-Every answer is kept — failed runs included. **History** under the recommendation panel lists each past run (pick number, round, effort, the note you sent, and the pick that was actually made at that spot next to what Claude suggested); expanding one shows the full answer again, plus a **Raw** toggle with the exact JSON and token usage. **Download log** saves the whole draft as JSON. The log lives in your browser, is scoped to one draft, survives a reload, and is wiped by **Clear** in the panel or **Reset everything** in Settings.
+Every answer is kept — failed runs included. **History** under the recommendation panel lists each past run (pick number, round, effort, the note you sent, and the pick that was actually made at that spot next to what the model suggested); expanding one shows the full answer again, plus a **Raw** toggle with the exact JSON and token usage. **Download log** saves the whole draft as JSON. The log lives in your browser, is scoped to one draft, survives a reload, and is wiped by **Clear** in the panel or **Reset everything** in Settings.
 
 ## Deploy to Vercel
 
@@ -63,10 +63,15 @@ Set environment variables in the Vercel project:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | yes | Server-side Claude key; never sent to the browser |
+| `LLM_PROVIDER` | no | Which model evaluates the board: `gemini` (default) or `anthropic`. An unrecognized value is an error, not a silent fallback |
+| `GEMINI_API_KEY` | when provider is `gemini` | Server-side Gemini key; never sent to the browser |
+| `GEMINI_MODEL` | no | Override the model (default `gemini-pro-latest`). Effort is sent as a thinking level, so this expects a Gemini 3 or newer model |
 | `APP_PASSWORD` | recommended | If set, `/api/recommend` requires the same value entered in the app's Settings drawer — stops strangers from spending your key on a public URL |
-| `ANTHROPIC_WORKSPACE_ID` | only for identity-linked keys | Workspace the request acts in, sent as the `anthropic-workspace-id` header. Without it such a key fails with `400 anthropic-workspace-id is required`. Find it in Console → Settings → Workspaces (the `wrkspc_…` id in the workspace URL) |
+| `ANTHROPIC_API_KEY` | when provider is `anthropic` | Server-side Claude key; never sent to the browser |
+| `ANTHROPIC_WORKSPACE_ID` | only for identity-linked Claude keys | Workspace the request acts in, sent as the `anthropic-workspace-id` header. Without it such a key fails with `400 anthropic-workspace-id is required`. Find it in Console → Settings → Workspaces (the `wrkspc_…` id in the workspace URL) |
 | `ANTHROPIC_MODEL` | no | Override the model (default `claude-opus-5`) |
+
+**Upgrading from a Claude-only deploy:** the provider now defaults to Gemini, so an environment that sets only `ANTHROPIC_API_KEY` will start returning "GEMINI_API_KEY is not set on the server." Either add a Gemini key or set `LLM_PROVIDER=anthropic` to keep the previous behavior.
 
 `content/preferences.md` and `content/rankings-template.csv` deploy with the app — edit them, push, redeploy. Imported rankings and your Sleeper IDs live in your browser's localStorage.
 
@@ -90,7 +95,8 @@ lib/rankings.ts      CSV parsing, name normalization, matching to Sleeper ids, m
 lib/defaultRankings.ts   reads content/rankings-template.csv as the fallback rankings
 lib/availability.ts  P(gone) model, tier summary
 lib/prompt.ts        system prompt (strategy + league + preferences) and draft-state message
-lib/schema.ts        zod schemas for the request and Claude's structured output
+lib/schema.ts        zod schemas for the request and the model's structured output
+lib/llm/             provider abstraction: gemini.ts, anthropic.ts, chosen by LLM_PROVIDER
 content/preferences.md   your draft philosophy — edit this
 proxy.ts             optional APP_PASSWORD gate
 ```
