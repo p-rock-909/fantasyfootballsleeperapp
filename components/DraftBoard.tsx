@@ -168,6 +168,9 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
             {Array.from({ length: fmt.teams }, (_, i) => i + 1).map((s) => <option key={s} value={s}>Slot {s}</option>)}
           </select>
           <div className="ml-auto flex gap-2">
+            {draft.league_id && (
+              <Link className="btn btn-ghost" href={`/league/${draft.league_id}/matchups`} title="In-season matchups and start/sit">Matchups</Link>
+            )}
             <button className="btn btn-ghost" onClick={() => setPanel(panel === "rankings" ? "none" : "rankings")}>
               Rankings {rankings
                 ? <span className="pill bg-emerald-900 text-emerald-200">{rankings.filter((r) => r.playerId).length}</span>

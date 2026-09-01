@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test \"lib/*.test.ts\"",
+    "test": "tsx --test \"lib/**/*.test.ts\"",
     "smoke": "tsx scripts/smoke.mts",
     "rankings-template": "tsx scripts/make-rankings-template.mts"
   },

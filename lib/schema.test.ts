@@ -1,0 +1,74 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { z } from "zod";
+import { LiveContext } from "./liveContext";
+import { MatchupRecommendation, RecommendationResponse } from "./schema";
+
+/**
+ * The JSON Schema keywords Gemini's `responseJsonSchema` documents as supported,
+ * copied from node_modules/@google/genai/dist/genai.d.ts (the `responseJsonSchema`
+ * doc comment on GenerationConfig). Anything else is silently ignored at best and
+ * a 400 at worst.
+ */
+const SUPPORTED = new Set([
+  "$id", "$defs", "$ref", "$anchor",
+  "type", "format", "title", "description", "enum",
+  "items", "prefixItems", "minItems", "maxItems",
+  "minimum", "maximum",
+  "anyOf", "oneOf",
+  "properties", "additionalProperties", "required",
+  "propertyOrdering",
+]);
+
+/** Every keyword used anywhere in the emitted schema, ignoring property *names*. */
+function keywordsIn(node: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(node)) {
+    for (const child of node) keywordsIn(child, out);
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  for (const [key, value] of Object.entries(node)) {
+    out.add(key);
+    // Under `properties`, the keys are the caller's field names, not keywords.
+    if (key === "properties" && value && typeof value === "object") {
+      for (const child of Object.values(value)) keywordsIn(child, out);
+    } else {
+      keywordsIn(value, out);
+    }
+  }
+  return out;
+}
+
+const SCHEMAS: [string, z.ZodType][] = [
+  ["RecommendationResponse", RecommendationResponse],
+  ["MatchupRecommendation", MatchupRecommendation],
+  ["LiveContext", LiveContext],
+];
+
+for (const [name, schema] of SCHEMAS) {
+  test(`${name} converts to JSON Schema without throwing`, () => {
+    assert.doesNotThrow(() => z.toJSONSchema(schema));
+  });
+
+  test(`${name} uses only JSON Schema keywords Gemini supports`, () => {
+    const json = z.toJSONSchema(schema) as Record<string, unknown>;
+    delete json.$schema; // stripped before the call by geminiJsonSchema()
+    const unsupported = [...keywordsIn(json)].filter((k) => !SUPPORTED.has(k)).sort();
+    assert.deepEqual(
+      unsupported,
+      [],
+      `${name} emits unsupported keyword(s): ${unsupported.join(", ")}. ` +
+        `z.record() emits "propertyNames" and z.tuple() emits "items: false" — use an array of ` +
+        `{key, value} objects or z.array().min().max() instead.`,
+    );
+  });
+}
+
+// Guards the two constructs that are easy to reach for and silently break the Gemini path.
+test("the keyword check actually catches z.record and z.tuple", () => {
+  const withRecord = z.object({ totals: z.record(z.string(), z.number()) });
+  const withTuple = z.object({ pair: z.tuple([z.string(), z.string()]) });
+  assert.ok(keywordsIn(z.toJSONSchema(withRecord)).has("propertyNames"));
+  assert.ok([...keywordsIn(z.toJSONSchema(withTuple))].includes("prefixItems"));
+  assert.equal((z.toJSONSchema(withTuple).properties?.pair as { items?: unknown })?.items, false);
+});

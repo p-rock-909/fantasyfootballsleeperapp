@@ -6,6 +6,7 @@ import type { RecommendationResponse } from "@/lib/schema";
 import type { SleeperPick } from "@/lib/sleeper";
 import type { RecState } from "./DraftBoard";
 import type { RecLogEntry, Settings } from "@/lib/storage";
+import RawJson from "./RawJson";
 
 interface Props {
   rec: RecState;
@@ -67,7 +68,7 @@ export default function Recommendations({ rec, history, pickAt, draftId, onClear
           <>
             <RecBody d={d} byId={byId} />
             {rec.meta && <div className="text-[10px] text-zinc-600">{rec.meta.model}</div>}
-            <Raw value={{ recommendation: d, meta: rec.meta ?? null }} />
+            <RawJson value={{ recommendation: d, meta: rec.meta ?? null }} />
           </>
         )}
 
@@ -163,24 +164,10 @@ function HistoryEntry({ entry, byId, actual }: { entry: RecLogEntry; byId: Map<s
           {entry.error && <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">{entry.error}</div>}
           {entry.data && <RecBody d={entry.data} byId={byId} />}
           {entry.meta?.model && <div className="text-[10px] text-zinc-600">{entry.meta.model}</div>}
-          <Raw value={{ recommendation: entry.data, error: entry.error, meta: entry.meta }} />
+          <RawJson value={{ recommendation: entry.data, error: entry.error, meta: entry.meta }} />
         </div>
       )}
     </li>
   );
 }
 
-/** Raw JSON of a response, for debugging what the model actually returned. */
-function Raw({ value }: { value: unknown }) {
-  const [open, setOpen] = useState(false);
-  const json = JSON.stringify(value, null, 2);
-  return (
-    <div>
-      <div className="flex items-center gap-3">
-        <button className="text-[10px] text-zinc-600 hover:text-zinc-400" onClick={() => setOpen((v) => !v)}>{open ? "▾" : "▸"} Raw</button>
-        {open && <button className="text-[10px] text-zinc-600 hover:text-zinc-400" onClick={() => navigator.clipboard?.writeText(json)}>Copy</button>}
-      </div>
-      {open && <pre className="mt-1 max-h-64 overflow-auto rounded bg-zinc-900 p-2 text-[10px] leading-tight text-zinc-400">{json}</pre>}
-    </div>
-  );
-}

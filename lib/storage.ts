@@ -4,7 +4,8 @@
 import type { Player } from "./sleeper";
 import type { RankingRow } from "./rankings";
 import type { LlmUsage } from "./llm/types";
-import type { RecommendationResponse } from "./schema";
+import type { MatchupRecommendation, RecommendationResponse } from "./schema";
+import type { LiveContextResult } from "./liveContext";
 
 export interface Settings {
   userId: string | null;
@@ -25,6 +26,8 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const KEYS = { settings: "sda:settings", players: "sda:players", rankings: "sda:rankings", rankingsCsv: "sda:rankingsCsv" };
 const REC_LOG_PREFIX = "sda:recs:";
+const MATCHUP_LOG_PREFIX = "sda:matchup:";
+const LOG_PREFIXES = [REC_LOG_PREFIX, MATCHUP_LOG_PREFIX];
 
 function read<T>(key: string): T | null {
   try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : null; } catch { return null; }
@@ -50,7 +53,7 @@ export const saveRankingsCsv = (csv: string) => write(KEYS.rankingsCsv, csv);
 
 export function clearAll() {
   for (const k of Object.values(KEYS)) try { localStorage.removeItem(k); } catch { /* ignore */ }
-  for (const k of recLogKeys()) try { localStorage.removeItem(k); } catch { /* ignore */ }
+  for (const k of keysWithPrefix(...LOG_PREFIXES)) try { localStorage.removeItem(k); } catch { /* ignore */ }
 }
 
 // ---- React hook: settings as an external store (hydration-safe, no setState-in-effect) ----
@@ -103,12 +106,12 @@ const REC_LOG_MAX = 100;
 
 const recLogKey = (draftId: string) => `${REC_LOG_PREFIX}${draftId}`;
 
-function recLogKeys(): string[] {
+function keysWithPrefix(...prefixes: string[]): string[] {
   const out: string[] = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k?.startsWith(REC_LOG_PREFIX)) out.push(k);
+      if (k && prefixes.some((p) => k.startsWith(p))) out.push(k);
     }
   } catch { /* ignore */ }
   return out;
@@ -153,4 +156,64 @@ export function useRecLog(draftId: string): RecLogEntry[] {
 
 export function newRecId(): string {
   try { return crypto.randomUUID(); } catch { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
+}
+
+// ---- Matchup evaluation log: one list per league+week, newest first ----
+
+export interface MatchupLogEntry {
+  id: string;
+  at: number;
+  week: number;
+  /** Which matchup and which side — a week holds several, and a bare list is unreadable later. */
+  matchupKey: string;
+  myRosterId: number;
+  myTeam: string;
+  opponentTeam: string | null;
+  effort: Settings["effort"];
+  question: string | null;
+  data: MatchupRecommendation | null;
+  liveContext: LiveContextResult | null;
+  /** App-generated lineup problems. Kept apart from the model's own `alerts`. */
+  validation: { ok: boolean; issues: string[] } | null;
+  error: string | null;
+  meta: Record<string, unknown> | null;
+}
+
+// Entries carry a whole news brief, so they are much larger than a draft entry and
+// `write()` swallows QuotaExceededError silently. 20 covers a full season of re-runs.
+const MATCHUP_LOG_MAX = 20;
+
+const matchupLogKey = (leagueId: string, week: number) => `${MATCHUP_LOG_PREFIX}${leagueId}:${week}`;
+
+const EMPTY_MATCHUP_LOG: MatchupLogEntry[] = [];
+const matchupListeners = new Set<() => void>();
+const matchupSnapCache = new Map<string, { raw: string | null; value: MatchupLogEntry[] }>();
+
+function matchupLogSnapshot(leagueId: string, week: number): MatchupLogEntry[] {
+  const key = matchupLogKey(leagueId, week);
+  let raw: string | null = null;
+  try { raw = localStorage.getItem(key); } catch { /* ignore */ }
+  const cached = matchupSnapCache.get(key);
+  if (cached && cached.raw === raw) return cached.value;
+  let value: MatchupLogEntry[] = EMPTY_MATCHUP_LOG;
+  try { const v = raw ? JSON.parse(raw) : null; if (Array.isArray(v)) value = v as MatchupLogEntry[]; } catch { /* ignore */ }
+  matchupSnapCache.set(key, { raw, value });
+  return value;
+}
+
+const subscribeMatchupLog = (cb: () => void) => { matchupListeners.add(cb); return () => { matchupListeners.delete(cb); }; };
+const emptyMatchupLog = () => EMPTY_MATCHUP_LOG;
+
+export function appendMatchupLog(leagueId: string, week: number, entry: MatchupLogEntry) {
+  write(matchupLogKey(leagueId, week), [entry, ...matchupLogSnapshot(leagueId, week)].slice(0, MATCHUP_LOG_MAX));
+  for (const l of matchupListeners) l();
+}
+
+export function clearMatchupLog(leagueId: string, week: number) {
+  try { localStorage.removeItem(matchupLogKey(leagueId, week)); } catch { /* ignore */ }
+  for (const l of matchupListeners) l();
+}
+
+export function useMatchupLog(leagueId: string, week: number): MatchupLogEntry[] {
+  return useSyncExternalStore(subscribeMatchupLog, () => matchupLogSnapshot(leagueId, week), emptyMatchupLog);
 }

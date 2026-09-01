@@ -1,6 +1,6 @@
 "use client";
 
-import type { Player, SleeperDraft, SleeperLeague, SleeperPick, SleeperState, SleeperUser } from "./sleeper";
+import type { Player, SleeperDraft, SleeperLeague, SleeperMatchup, SleeperPick, SleeperRoster, SleeperState, SleeperUser } from "./sleeper";
 import { loadPlayers, savePlayers } from "./storage";
 
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
@@ -20,6 +20,10 @@ export const api = {
   draft: (draftId: string) => j<SleeperDraft>(`/api/sleeper/draft/${draftId}`),
   picks: (draftId: string) => j<SleeperPick[]>(`/api/sleeper/draft/${draftId}/picks`),
   leagueUsers: (leagueId: string) => j<SleeperUser[]>(`/api/sleeper/league/${leagueId}/users`),
+  rosters: (leagueId: string) => j<SleeperRoster[]>(`/api/sleeper/league/${leagueId}/rosters`),
+  // Sleeper 404s a week with no schedule; the board renders an empty state rather than an error.
+  matchups: (leagueId: string, week: number) =>
+    j<SleeperMatchup[]>(`/api/sleeper/league/${leagueId}/matchups/${week}`).catch(() => [] as SleeperMatchup[]),
   rankingsTemplate: () => j<{ csv: string | null; source: string }>("/api/rankings"),
 };
 

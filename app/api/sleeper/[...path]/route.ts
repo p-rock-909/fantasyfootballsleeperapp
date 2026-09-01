@@ -11,6 +11,7 @@ const ALLOWED = [
   /^league\/\d+$/,
   /^league\/\d+\/drafts$/,
   /^league\/\d+\/rosters$/,
+  /^league\/\d+\/matchups\/\d+$/,
   /^league\/\d+\/users$/,
   /^draft\/\d+$/,
   /^draft\/\d+\/picks$/,

@@ -255,22 +255,40 @@ test("pairMatchups on an empty or null week returns nothing", () => {
 
 // ---- matchupPhase ----
 
+const phase = (week: number, stateWeek: number, matchups: SleeperMatchup[], seasons = { leagueSeason: "2026", stateSeason: "2026" }) =>
+  matchupPhase({ week, stateWeek, matchups, ...seasons });
+
 test("matchupPhase: a future week is always pre-game", () => {
-  assert.equal(matchupPhase(9, 5, [matchup({ points: 0 })]), "pre");
+  assert.equal(phase(9, 5, [matchup({ points: 0 })]), "pre");
 });
 
 test("matchupPhase: the current week with no points anywhere is pre-game, not live", () => {
-  assert.equal(matchupPhase(5, 5, [matchup({ points: 0 }), matchup({ points: null })]), "pre");
-  assert.equal(matchupPhase(5, 5, [matchup({ points: 12.2 })]), "live");
+  assert.equal(phase(5, 5, [matchup({ points: 0 }), matchup({ points: null })]), "pre");
+  assert.equal(phase(5, 5, [matchup({ points: 12.2 })]), "live");
 });
 
 test("matchupPhase: a past week that was played is final", () => {
-  assert.equal(matchupPhase(3, 5, [matchup({ points: 101.4 })]), "final");
-  assert.equal(matchupPhase(3, 5, []), "pre");
+  assert.equal(phase(3, 5, [matchup({ points: 101.4 })]), "final");
+  assert.equal(phase(3, 5, []), "pre");
 });
 
 test("matchupPhase: a negative-scoring starter does not make the week look unplayed", () => {
-  assert.equal(matchupPhase(5, 5, [matchup({ points: -2, starters_points: [-2] })]), "live");
+  assert.equal(phase(5, 5, [matchup({ points: -2, starters_points: [-2] })]), "live");
+});
+
+test("matchupPhase: a prior-season league is final, not pre-game", () => {
+  // Week 14 of 2025 opened in September 2026, when state.week is 1.
+  assert.equal(phase(14, 1, [matchup({ points: 118.2 })], { leagueSeason: "2025", stateSeason: "2026" }), "final");
+  assert.equal(phase(14, 1, [], { leagueSeason: "2025", stateSeason: "2026" }), "final");
+});
+
+test("matchupPhase: a league for a season that hasn't started is pre-game", () => {
+  assert.equal(phase(1, 17, [], { leagueSeason: "2027", stateSeason: "2026" }), "pre");
+});
+
+test("matchupPhase: Monday night — points are in but state.week hasn't rolled over", () => {
+  // The points check is dominant, so a finished week never reads as "pre".
+  assert.equal(phase(5, 5, [matchup({ points: 143.8 })]), "live");
 });
 
 // ---- checkLineup ----

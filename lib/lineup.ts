@@ -200,14 +200,35 @@ export function pairMatchups(matchups: SleeperMatchup[] | null | undefined): Mat
 
 export type MatchupPhase = "pre" | "live" | "final";
 
+export interface PhaseInput {
+  week: number;
+  /** The league's season, so a completed prior-season league isn't read as "not started". */
+  leagueSeason: string;
+  stateSeason: string;
+  /**
+   * `state.week` — the week that is actually scoring. Deliberately NOT `display_week`:
+   * that one is for labelling the week picker, and using it here would shift the
+   * live/final boundary by a day.
+   */
+  stateWeek: number;
+  matchups: SleeperMatchup[] | null | undefined;
+}
+
 /**
- * Whether the week has started. Deliberately not derived from `starters_points[i] > 0`:
- * a QB can score negative, a receiver can genuinely score 0.0, and an inactive starter
- * stays at 0 forever — all three would read as "hasn't played yet" indefinitely.
+ * Whether the week is upcoming, in progress, or done.
+ *
+ * Deliberately not derived from `starters_points[i] > 0`: a QB can score negative, a
+ * receiver can genuinely score 0.0, and an inactive starter stays at 0 forever — all
+ * three would read as "hasn't played yet" indefinitely.
+ *
+ * The points check is dominant over the week arithmetic so a populated week can never
+ * come back as `pre`. That covers the Monday-night window, where `state.week` has not
+ * rolled over yet but the games are finished.
  */
-export function matchupPhase(week: number, stateWeek: number, matchups: SleeperMatchup[] | null | undefined): MatchupPhase {
-  if (week > stateWeek) return "pre";
+export function matchupPhase({ week, leagueSeason, stateSeason, stateWeek, matchups }: PhaseInput): MatchupPhase {
   const anyPoints = (matchups ?? []).some((m) => !!m.points);
+  if (leagueSeason !== stateSeason) return leagueSeason > stateSeason ? "pre" : "final";
+  if (week > stateWeek) return "pre";
   if (week < stateWeek) return anyPoints ? "final" : "pre";
   return anyPoints ? "live" : "pre";
 }

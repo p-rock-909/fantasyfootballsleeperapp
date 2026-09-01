@@ -4,8 +4,8 @@ import path from "node:path";
 import { RecommendRequest, RecommendationResponse } from "@/lib/schema";
 import { activeProvider, LlmError } from "@/lib/llm";
 import { leagueFormat, sleeperFetch, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
-import { trimPlayers } from "@/lib/players";
 import { byeForTeam } from "@/lib/players";
+import { getPlayers } from "@/lib/playerPool";
 import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
 import { turnInfo } from "@/lib/draftMath";
 import { analyzeRoster } from "@/lib/rosterNeeds";
@@ -17,15 +17,6 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a deep run can take a while on either provider; Vercel Pro allows up to 300s
 
 const AVAILABLE_LIMIT = 80;
-
-// Warm-lambda cache of the trimmed player pool (Sleeper asks for <=1 players call/day).
-let playerCache: { at: number; players: Player[] } | null = null;
-async function getPlayers(): Promise<Player[]> {
-  if (playerCache && Date.now() - playerCache.at < 6 * 3600 * 1000) return playerCache.players;
-  const raw = await sleeperFetch<Record<string, never>>("/players/nfl");
-  playerCache = { at: Date.now(), players: trimPlayers(raw) };
-  return playerCache.players;
-}
 
 async function getPreferences(): Promise<string> {
   try {
