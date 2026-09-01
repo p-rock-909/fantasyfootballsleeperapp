@@ -4,6 +4,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseRankings, type RankingRow } from "./rankings";
+import type { RankingRowInput } from "./schema";
 import type { Player } from "./sleeper";
 
 export const DEFAULT_RANKINGS_PATH = "content/rankings-template.csv";
@@ -20,6 +21,18 @@ export async function defaultRankingsCsv(): Promise<string | null> {
   } catch { /* no template deployed — callers fall back to Sleeper order */ }
   csvCache = { at: Date.now(), csv };
   return csv;
+}
+
+/**
+ * What the browser sent, or the bundled template when it sent nothing. Both
+ * recommendation routes resolve rankings this way.
+ */
+export async function resolveRankingRows(
+  players: Player[],
+  requested: RankingRowInput[] | null | undefined,
+): Promise<RankingRow[] | null> {
+  if (requested?.length) return requested.map((r) => ({ name: "", pos: null, team: null, ...r }));
+  return defaultRankingRows(players);
 }
 
 /** Template rows matched to the Sleeper pool, or null when the file is missing or unusable. */

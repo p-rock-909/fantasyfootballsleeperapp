@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, getPlayers } from "@/lib/client";
 import { leagueFormat, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
 import { resolveMySlot, secondsLeft, turnInfo } from "@/lib/draftMath";
-import { mergeRankings, parseRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
+import { mergeRankings, parseRankings, serializeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
 import { byeForTeam } from "@/lib/players";
 import { analyzeRoster } from "@/lib/rosterNeeds";
 import { appendRecLog, clearRecLog, loadRankings, loadSettings, newRecId, updateSettings as persistSettings, useRecLog, useSettings, type Settings } from "@/lib/storage";
@@ -113,7 +113,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
         headers: { "content-type": "application/json", ...(settings.appPassword ? { "x-app-password": settings.appPassword } : {}) },
         body: JSON.stringify({
           draftId, effort: settings.effort, mySlot,
-          rankings: activeRankings?.filter((r) => r.playerId).map((r) => ({ playerId: r.playerId, rank: r.rank, adp: r.adp, tier: r.tier, bye: r.bye, proj: r.proj, posRank: r.posRank })) ?? null,
+          rankings: serializeRankings(activeRankings),
           question: q || undefined,
         }),
       });

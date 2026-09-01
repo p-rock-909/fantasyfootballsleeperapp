@@ -27,6 +27,7 @@ export const LivePlayerNews = z.object({
   note: z.string().describe("One sentence a fantasy manager can act on"),
   sources: z.array(z.string()).describe("URLs this came from"),
 });
+export type LivePlayerNews = z.infer<typeof LivePlayerNews>;
 
 export const LiveGameContext = z.object({
   home: z.string().describe("Home team abbreviation"),

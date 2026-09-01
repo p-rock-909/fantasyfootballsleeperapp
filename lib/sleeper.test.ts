@@ -98,6 +98,16 @@ test("leagueFormat derives ppr from the draft's scoring_type when there is no le
   assert.equal(leagueFormat(draft({ metadata: {} }), null).ppr, 0);
 });
 
+test("leagueFormat falls back to the draft's scoring_type when a league has no rec setting", () => {
+  // A league whose scoring_settings omits `rec` shouldn't silently become standard
+  // scoring when the draft itself says PPR.
+  const l = league({ scoring_settings: { pass_td: 4 } });
+  assert.equal(leagueFormat(draft({ metadata: { scoring_type: "ppr" } }), l).ppr, 1);
+  assert.equal(leagueFormat(draft({ metadata: { scoring_type: "half_ppr" } }), l).ppr, 0.5);
+  // An explicit league value always wins over the draft's label.
+  assert.equal(leagueFormat(draft({ metadata: { scoring_type: "ppr" } }), league({ scoring_settings: { rec: 0 } })).ppr, 0);
+});
+
 test("leagueFormat flags superflex and TE premium", () => {
   const l = league({
     roster_positions: ["QB", "SUPER_FLEX", "TE", "BN"],

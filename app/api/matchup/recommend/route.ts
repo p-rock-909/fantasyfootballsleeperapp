@@ -14,12 +14,12 @@ import {
 } from "@/lib/sleeper";
 import { byeForTeam } from "@/lib/players";
 import { getPlayerPool } from "@/lib/playerPool";
-import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
-import { defaultRankingRows } from "@/lib/defaultRankings";
+import { mergeRankings, type RankedPlayer } from "@/lib/rankings";
+import { resolveRankingRows } from "@/lib/defaultRankings";
 import {
   buildTeam,
-  candidatesForSlot,
   checkLineup,
+  isEligible,
   matchupPhase,
   orderedSlots,
   pairMatchups,
@@ -81,9 +81,7 @@ export async function POST(request: Request) {
   const { slots, unsupported } = orderedSlots(league.roster_positions);
   if (!slots.length) return NextResponse.json({ error: "This league has no supported starting slots." }, { status: 400 });
 
-  const rankingRows: RankingRow[] | null = req.rankings?.length
-    ? req.rankings.map((r) => ({ name: "", pos: null, team: null, ...r }))
-    : await defaultRankingRows(pool.players);
+  const rankingRows = await resolveRankingRows(pool.players, req.rankings);
   const ranked = mergeRankings(pool.players, rankingRows, byeForTeam);
   const byId = new Map<string, RankedPlayer>(ranked.map((p) => [p.id, p]));
   const userById = new Map(users.map((u) => [u.user_id, u]));
@@ -93,7 +91,7 @@ export async function POST(request: Request) {
   const team = (rosterId: number) => {
     const roster = rosterById.get(rosterId);
     if (!roster) return null;
-    return buildTeam(roster, matchupByRoster.get(rosterId), userById, byId, slots, unsupported, req.week);
+    return buildTeam({ roster, matchup: matchupByRoster.get(rosterId), users: userById, byId, slots, unsupportedSlots: unsupported, week: req.week });
   };
   const me = team(req.myRosterId);
   if (!me) return NextResponse.json({ error: "That roster is not in this league." }, { status: 400 });
@@ -103,7 +101,7 @@ export async function POST(request: Request) {
   // 3. Deterministic lineup math: who is legally startable, and where.
   const startable = [...me.starters, ...me.bench].filter((r) => r.status === "startable");
   const legalBySlot = new Map<StartingSlot, TeamRow[]>();
-  for (const slot of new Set(slots)) legalBySlot.set(slot, candidatesForSlot(slot, startable.map((r) => r.player)).map((p) => startable.find((r) => r.player.id === p.id)!));
+  for (const slot of new Set(slots)) legalBySlot.set(slot, startable.filter((r) => isEligible(slot, r.player.pos)));
 
   const phase = matchupPhase({
     week: req.week,

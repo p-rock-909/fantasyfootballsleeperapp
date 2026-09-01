@@ -1,3 +1,4 @@
+import { SLOT_ELIGIBILITY } from "./lineup";
 import type { Player, Position, SlotCounts } from "./sleeper";
 
 export interface RosterAnalysis {
@@ -12,10 +13,7 @@ export interface RosterAnalysis {
   summary: string; // one-line human summary for prompts/UI
 }
 
-const FLEX_ELIGIBLE: Position[] = ["RB", "WR", "TE"];
-const REC_FLEX_ELIGIBLE: Position[] = ["WR", "TE"];
-const WRRB_FLEX_ELIGIBLE: Position[] = ["RB", "WR"];
-const SF_ELIGIBLE: Position[] = ["QB", "RB", "WR", "TE"];
+// Which positions fill which slot is one league rule with one owner: SLOT_ELIGIBILITY.
 
 export function analyzeRoster(
   roster: Player[],
@@ -33,15 +31,18 @@ export function analyzeRoster(
     leftover[pos] = counts[pos] - used;
   }
   // Fill flex-type slots greedily with leftover players.
-  const fill = (n: number, elig: Position[]) => {
+  const fill = (n: number, elig: readonly Position[]) => {
     let open = n;
     for (const pos of elig) {
       while (open > 0 && leftover[pos] > 0) { leftover[pos]--; open--; }
     }
     return open;
   };
-  const flexOpen = fill(slots.FLEX, FLEX_ELIGIBLE) + fill(slots.REC_FLEX, REC_FLEX_ELIGIBLE) + fill(slots.WRRB_FLEX, WRRB_FLEX_ELIGIBLE);
-  const superflexOpen = fill(slots.SUPER_FLEX, SF_ELIGIBLE);
+  const flexOpen =
+    fill(slots.FLEX, SLOT_ELIGIBILITY.FLEX) +
+    fill(slots.REC_FLEX, SLOT_ELIGIBILITY.REC_FLEX) +
+    fill(slots.WRRB_FLEX, SLOT_ELIGIBILITY.WRRB_FLEX);
+  const superflexOpen = fill(slots.SUPER_FLEX, SLOT_ELIGIBILITY.SUPER_FLEX);
   const totalSlots = slots.QB + slots.RB + slots.WR + slots.TE + slots.K + slots.DEF + slots.FLEX + slots.REC_FLEX + slots.WRRB_FLEX + slots.SUPER_FLEX + slots.BN;
   const totalOpen = Math.max(0, totalSlots - roster.length);
   const benchUsed = (Object.values(leftover) as number[]).reduce((a, b) => a + b, 0);

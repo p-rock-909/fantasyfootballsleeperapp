@@ -104,8 +104,6 @@ export interface RecLogEntry {
 // A 12-team draft auto-runs a handful of times per round; 100 covers a full draft plus re-runs.
 const REC_LOG_MAX = 100;
 
-const recLogKey = (draftId: string) => `${REC_LOG_PREFIX}${draftId}`;
-
 function keysWithPrefix(...prefixes: string[]): string[] {
   const out: string[] = [];
   try {
@@ -117,42 +115,53 @@ function keysWithPrefix(...prefixes: string[]): string[] {
   return out;
 }
 
-// Same external-store shape as settings above, keyed per draft.
-const EMPTY_LOG: RecLogEntry[] = [];
-const recListeners = new Set<() => void>();
-const recSnapCache = new Map<string, { raw: string | null; value: RecLogEntry[] }>();
+/**
+ * A newest-first, capped list persisted per key — the same external-store shape as
+ * settings above, so a snapshot is stable until the underlying string changes and
+ * `useSyncExternalStore` doesn't loop. Both the draft and matchup logs are built on it.
+ */
+function createLogStore<T>(prefix: string, max: number) {
+  const EMPTY: T[] = [];
+  const listeners = new Set<() => void>();
+  const snapCache = new Map<string, { raw: string | null; value: T[] }>();
+  const storageKey = (id: string) => `${prefix}${id}`;
 
-function recLogSnapshot(draftId: string): RecLogEntry[] {
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(recLogKey(draftId)); } catch { /* ignore */ }
-  const cached = recSnapCache.get(draftId);
-  if (cached && cached.raw === raw) return cached.value;
-  const value = (raw ? safeParseLog(raw) : null) ?? EMPTY_LOG;
-  recSnapCache.set(draftId, { raw, value });
-  return value;
-}
-function safeParseLog(raw: string): RecLogEntry[] | null {
-  try { const v = JSON.parse(raw); return Array.isArray(v) ? (v as RecLogEntry[]) : null; } catch { return null; }
-}
-const subscribeRecLog = (cb: () => void) => { recListeners.add(cb); return () => { recListeners.delete(cb); }; };
-const emptyLog = () => EMPTY_LOG;
-const notifyRecLog = () => { for (const l of recListeners) l(); };
+  function snapshot(id: string): T[] {
+    let raw: string | null = null;
+    try { raw = localStorage.getItem(storageKey(id)); } catch { /* ignore */ }
+    const cached = snapCache.get(id);
+    if (cached && cached.raw === raw) return cached.value;
+    let value: T[] = EMPTY;
+    try { const v = raw ? JSON.parse(raw) : null; if (Array.isArray(v)) value = v as T[]; } catch { /* ignore */ }
+    snapCache.set(id, { raw, value });
+    return value;
+  }
 
-/** Adds one entry at the front and drops anything past the cap. */
-export function appendRecLog(draftId: string, entry: RecLogEntry) {
-  write(recLogKey(draftId), [entry, ...recLogSnapshot(draftId)].slice(0, REC_LOG_MAX));
-  notifyRecLog();
+  const subscribe = (cb: () => void) => { listeners.add(cb); return () => { listeners.delete(cb); }; };
+  const notify = () => { for (const l of listeners) l(); };
+
+  return {
+    /** Adds one entry at the front and drops anything past the cap. */
+    append(id: string, entry: T) {
+      write(storageKey(id), [entry, ...snapshot(id)].slice(0, max));
+      notify();
+    },
+    clear(id: string) {
+      try { localStorage.removeItem(storageKey(id)); } catch { /* ignore */ }
+      notify();
+    },
+    /** Empty during SSR / first client render, then the persisted log. */
+    use(id: string): T[] {
+      return useSyncExternalStore(subscribe, () => snapshot(id), () => EMPTY);
+    },
+  };
 }
 
-export function clearRecLog(draftId: string) {
-  try { localStorage.removeItem(recLogKey(draftId)); } catch { /* ignore */ }
-  notifyRecLog();
-}
+const recLog = createLogStore<RecLogEntry>(REC_LOG_PREFIX, REC_LOG_MAX);
 
-/** Empty during SSR / first client render, then the persisted log for this draft. */
-export function useRecLog(draftId: string): RecLogEntry[] {
-  return useSyncExternalStore(subscribeRecLog, () => recLogSnapshot(draftId), emptyLog);
-}
+export const appendRecLog = (draftId: string, entry: RecLogEntry) => recLog.append(draftId, entry);
+export const clearRecLog = (draftId: string) => recLog.clear(draftId);
+export const useRecLog = (draftId: string): RecLogEntry[] => recLog.use(draftId);
 
 export function newRecId(): string {
   try { return crypto.randomUUID(); } catch { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
@@ -183,37 +192,10 @@ export interface MatchupLogEntry {
 // `write()` swallows QuotaExceededError silently. 20 covers a full season of re-runs.
 const MATCHUP_LOG_MAX = 20;
 
-const matchupLogKey = (leagueId: string, week: number) => `${MATCHUP_LOG_PREFIX}${leagueId}:${week}`;
+const matchupLog = createLogStore<MatchupLogEntry>(MATCHUP_LOG_PREFIX, MATCHUP_LOG_MAX);
+const matchupLogId = (leagueId: string, week: number) => `${leagueId}:${week}`;
 
-const EMPTY_MATCHUP_LOG: MatchupLogEntry[] = [];
-const matchupListeners = new Set<() => void>();
-const matchupSnapCache = new Map<string, { raw: string | null; value: MatchupLogEntry[] }>();
-
-function matchupLogSnapshot(leagueId: string, week: number): MatchupLogEntry[] {
-  const key = matchupLogKey(leagueId, week);
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(key); } catch { /* ignore */ }
-  const cached = matchupSnapCache.get(key);
-  if (cached && cached.raw === raw) return cached.value;
-  let value: MatchupLogEntry[] = EMPTY_MATCHUP_LOG;
-  try { const v = raw ? JSON.parse(raw) : null; if (Array.isArray(v)) value = v as MatchupLogEntry[]; } catch { /* ignore */ }
-  matchupSnapCache.set(key, { raw, value });
-  return value;
-}
-
-const subscribeMatchupLog = (cb: () => void) => { matchupListeners.add(cb); return () => { matchupListeners.delete(cb); }; };
-const emptyMatchupLog = () => EMPTY_MATCHUP_LOG;
-
-export function appendMatchupLog(leagueId: string, week: number, entry: MatchupLogEntry) {
-  write(matchupLogKey(leagueId, week), [entry, ...matchupLogSnapshot(leagueId, week)].slice(0, MATCHUP_LOG_MAX));
-  for (const l of matchupListeners) l();
-}
-
-export function clearMatchupLog(leagueId: string, week: number) {
-  try { localStorage.removeItem(matchupLogKey(leagueId, week)); } catch { /* ignore */ }
-  for (const l of matchupListeners) l();
-}
-
-export function useMatchupLog(leagueId: string, week: number): MatchupLogEntry[] {
-  return useSyncExternalStore(subscribeMatchupLog, () => matchupLogSnapshot(leagueId, week), emptyMatchupLog);
-}
+export const appendMatchupLog = (leagueId: string, week: number, entry: MatchupLogEntry) =>
+  matchupLog.append(matchupLogId(leagueId, week), entry);
+export const clearMatchupLog = (leagueId: string, week: number) => matchupLog.clear(matchupLogId(leagueId, week));
+export const useMatchupLog = (leagueId: string, week: number): MatchupLogEntry[] => matchupLog.use(matchupLogId(leagueId, week));

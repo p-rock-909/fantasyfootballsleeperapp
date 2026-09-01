@@ -112,15 +112,19 @@ export const teamName = (roster: SleeperRoster, users: Map<string, SleeperUser>)
 export const rosterOwnerIds = (roster: SleeperRoster): string[] =>
   [roster.owner_id, ...(roster.co_owners ?? [])].filter((id): id is string => !!id);
 
-export function buildTeam(
-  roster: SleeperRoster,
-  matchup: SleeperMatchup | undefined,
-  users: Map<string, SleeperUser>,
-  byId: Map<string, LineupPlayer>,
-  slots: StartingSlot[],
-  unsupportedSlots: string[],
-  week: number,
-): MatchupTeam {
+export interface BuildTeamInput {
+  roster: SleeperRoster;
+  matchup: SleeperMatchup | undefined;
+  users: Map<string, SleeperUser>;
+  byId: Map<string, LineupPlayer>;
+  slots: StartingSlot[];
+  unsupportedSlots: string[];
+  week: number;
+}
+
+// Named rather than positional: `slots` and `unsupportedSlots` are both string-ish and
+// adjacent, so a transposition would type-check and silently build the wrong team.
+export function buildTeam({ roster, matchup, users, byId, slots, unsupportedSlots, week }: BuildTeamInput): MatchupTeam {
   const ctx: StartabilityContext = { reserve: new Set(ids(roster.reserve)), taxi: new Set(ids(roster.taxi)), week };
   const points = matchup?.players_points ?? null;
   const row = (id: string, slot: StartingSlot | null): TeamRow | null => {

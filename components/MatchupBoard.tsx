@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api, getPlayers } from "@/lib/client";
 import { byeForTeam } from "@/lib/players";
-import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
+import { mergeRankings, serializeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
 import { buildTeam, matchupPhase, orderedSlots, pairMatchups, rosterOwnerIds, teamName } from "@/lib/lineup";
 import {
   formatFromLeague,
@@ -20,15 +20,20 @@ import MatchupCompare from "./MatchupCompare";
 import MatchupRecommendationPanel, { type MatchupRecState } from "./MatchupRecommendationPanel";
 
 const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
+interface LeagueData {
+  league: SleeperLeague;
+  users: SleeperUser[];
+  rosters: SleeperRoster[];
+  state: SleeperState;
+  players: Player[];
+}
+
 const IDLE: MatchupRecState = { loading: false, stage: null, data: null, liveContext: null, validation: null, error: null, meta: null, id: null };
 
 export default function MatchupBoard({ leagueId }: { leagueId: string }) {
   const [settings] = useSettings();
-  const [league, setLeague] = useState<SleeperLeague | null>(null);
-  const [users, setUsers] = useState<SleeperUser[]>([]);
-  const [rosters, setRosters] = useState<SleeperRoster[]>([]);
-  const [state, setState] = useState<SleeperState | null>(null);
-  const [players, setPlayers] = useState<Player[] | null>(null);
+  // One atomic resource: these are only ever written together and only read together.
+  const [data, setData] = useState<LeagueData | null>(null);
   const [rankings, setRankings] = useState<RankingRow[] | null>(null);
   const [week, setWeek] = useState<number | null>(null);
   // Stamped with the week it belongs to, so a stale response can't be read as the new week's.
@@ -37,8 +42,6 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
   const [pickedKey, setPickedKey] = useState<string | null>(null);
   const [pickedRosterId, setPickedRosterId] = useState<number | null>(null);
   const [rec, setRec] = useState<MatchupRecState>(IDLE);
-  const [question, setQuestion] = useState("");
-  const [refreshNews, setRefreshNews] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const history = useMatchupLog(leagueId, week ?? 0);
@@ -50,7 +53,7 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
         const [l, u, r, s, pl] = await Promise.all([
           api.league(leagueId), api.leagueUsers(leagueId), api.rosters(leagueId), api.state(), getPlayers(),
         ]);
-        setLeague(l); setUsers(u); setRosters(r); setState(s); setPlayers(pl);
+        setData({ league: l, users: u, rosters: r, state: s, players: pl });
         setRankings(loadRankings());
         updateSettings({ leagueId });
         // `display_week` is what Sleeper's own UI shows; it lags `week` for a day after a week ends.
@@ -74,18 +77,20 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
   const matchups = fetched && fetched.week === week ? fetched.rows : null;
   const loadingWeek = matchups === null;
 
+  const league = data?.league ?? null;
+  const rosters = data?.rosters;
   const fmt = useMemo(() => (league ? formatFromLeague(league) : null), [league]);
   const { slots, unsupported } = useMemo(() => orderedSlots(league?.roster_positions), [league]);
-  const ranked = useMemo(() => (players ? mergeRankings(players, rankings, byeForTeam) : []), [players, rankings]);
+  const ranked = useMemo(() => (data ? mergeRankings(data.players, rankings, byeForTeam) : []), [data, rankings]);
   const byId = useMemo(() => new Map<string, RankedPlayer>(ranked.map((p) => [p.id, p])), [ranked]);
-  const userById = useMemo(() => new Map(users.map((u) => [u.user_id, u])), [users]);
-  const rosterById = useMemo(() => new Map(rosters.map((r) => [r.roster_id, r])), [rosters]);
+  const userById = useMemo(() => new Map((data?.users ?? []).map((u) => [u.user_id, u])), [data]);
+  const rosterById = useMemo(() => new Map((rosters ?? []).map((r) => [r.roster_id, r])), [rosters]);
   const pairs = useMemo(() => pairMatchups(matchups), [matchups]);
 
   // Every roster this user can act for, co-owned ones included.
   const userId = settings?.userId ?? null;
   const myRosterIds = useMemo(
-    () => new Set(userId ? rosters.filter((r) => rosterOwnerIds(r).includes(userId)).map((r) => r.roster_id) : []),
+    () => new Set(userId && rosters ? rosters.filter((r) => rosterOwnerIds(r).includes(userId)).map((r) => r.roster_id) : []),
     [rosters, userId],
   );
 
@@ -105,7 +110,7 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
       .map((id) => {
         const roster = rosterById.get(id);
         if (!roster) return null;
-        return buildTeam(roster, matchupByRoster.get(id), userById, byId, slots, unsupported, week);
+        return buildTeam({ roster, matchup: matchupByRoster.get(id), users: userById, byId, slots, unsupportedSlots: unsupported, week });
       })
       .filter((t): t is NonNullable<typeof t> => !!t);
   }, [pair, rosterById, matchupByRoster, userById, byId, slots, unsupported, week]);
@@ -115,11 +120,11 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
   const opponent = teams.find((t) => t.rosterId !== me?.rosterId) ?? null;
 
   const phase = useMemo(
-    () => (league && state && week != null ? matchupPhase({ week, leagueSeason: league.season, stateSeason: state.season, stateWeek: state.week, matchups }) : "pre"),
-    [league, state, week, matchups],
+    () => (data && week != null ? matchupPhase({ week, leagueSeason: data.league.season, stateSeason: data.state.season, stateWeek: data.state.week, matchups }) : "pre"),
+    [data, week, matchups],
   );
 
-  async function evaluate() {
+  async function evaluate(question: string, refreshNews: boolean) {
     if (!settings || !league || week == null || !matchupKey || myRosterId == null || !me) return;
     const id = newRecId();
     setRec({ ...IDLE, loading: true, stage: "news", id });
@@ -137,7 +142,7 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
         body: JSON.stringify({
           leagueId, week, matchupKey, myRosterId,
           effort: settings.effort,
-          rankings: rankings?.filter((r) => r.playerId).map((r) => ({ playerId: r.playerId, rank: r.rank, adp: r.adp, tier: r.tier, bye: r.bye, proj: r.proj, posRank: r.posRank })) ?? null,
+          rankings: serializeRankings(rankings),
           question: question.trim() || undefined,
           refreshNews,
         }),
@@ -146,7 +151,6 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
       appendMatchupLog(leagueId, week, { ...base, data: body.recommendation, liveContext: body.liveContext, validation: body.validation, error: null, meta: body.meta });
       setRec({ loading: false, stage: null, data: body.recommendation, liveContext: body.liveContext, validation: body.validation, error: null, meta: body.meta, id });
-      setRefreshNews(false);
     } catch (e) {
       const message = (e as Error).message;
       appendMatchupLog(leagueId, week, { ...base, data: null, liveContext: null, validation: null, error: message, meta: null });
@@ -157,7 +161,7 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
   }
 
   if (err) return <div className="p-6 text-red-300">{err} — <Link className="underline" href="/">back to setup</Link></div>;
-  if (!league || !fmt || !players || !settings || week == null) return <div className="p-6 text-zinc-400">Loading league…</div>;
+  if (!data || !league || !fmt || !settings || week == null) return <div className="p-6 text-zinc-400">Loading league…</div>;
 
   const label = (rosterId: number) => {
     const r = rosterById.get(rosterId);
@@ -237,12 +241,8 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
           onEvaluate={evaluate}
           onClearHistory={() => clearMatchupLog(leagueId, week)}
           canRun={!!me && myRosterId != null && !!matchupKey}
-          question={question}
-          setQuestion={setQuestion}
           effort={settings.effort}
           setEffort={(effort: Settings["effort"]) => updateSettings({ effort })}
-          refreshNews={refreshNews}
-          setRefreshNews={setRefreshNews}
         />
       </main>
     </div>

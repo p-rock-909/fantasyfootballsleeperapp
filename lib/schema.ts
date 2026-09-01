@@ -28,6 +28,8 @@ export const RankingRowInput = z.object({
   posRank: z.number().nullable(),
 });
 
+export type RankingRowInput = z.infer<typeof RankingRowInput>;
+
 export const Effort = z.enum(["low", "medium", "high"]);
 
 export const RecommendRequest = z.object({

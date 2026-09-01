@@ -1,6 +1,8 @@
 "use client";
 
-import type { LiveContextResult } from "@/lib/liveContext";
+import { useMemo } from "react";
+
+import type { LiveContextResult, LivePlayerNews } from "@/lib/liveContext";
 import type { MatchupTeam, Startability, TeamRow } from "@/lib/lineup";
 
 const STATUS_PILL: Record<Startability, { label: string; className: string } | null> = {
@@ -11,10 +13,10 @@ const STATUS_PILL: Record<Startability, { label: string; className: string } | n
   out: { label: "OUT", className: "bg-red-900 text-red-200" },
 };
 
-function Row({ row, live }: { row: TeamRow; live: LiveContextResult | null }) {
+function Row({ row, news: newsById }: { row: TeamRow; news: Map<string, LivePlayerNews> }) {
   const p = row.player;
   const pill = STATUS_PILL[row.status];
-  const news = live?.players.find((n) => n.player_id === p.id);
+  const news = newsById.get(p.id);
   // Only worth showing when it adds something the Sleeper designation doesn't.
   const newsFlag = news && news.status !== "active" && news.status !== "unknown";
 
@@ -39,7 +41,7 @@ function Row({ row, live }: { row: TeamRow; live: LiveContextResult | null }) {
   );
 }
 
-function TeamColumn({ team, live, selected, onSelect }: { team: MatchupTeam; live: LiveContextResult | null; selected: boolean; onSelect: () => void }) {
+function TeamColumn({ team, news, selected, onSelect }: { team: MatchupTeam; news: Map<string, LivePlayerNews>; selected: boolean; onSelect: () => void }) {
   return (
     <div className={`card min-w-0 ${selected ? "border-emerald-600" : ""}`}>
       <div className="mb-2 flex items-center gap-2">
@@ -67,12 +69,12 @@ function TeamColumn({ team, live, selected, onSelect }: { team: MatchupTeam; liv
 
       <div className="text-[10px] uppercase tracking-wide text-zinc-500">Starters</div>
       <ul className="mb-3">
-        {team.starters.length ? team.starters.map((r) => <Row key={`${r.slot}-${r.player.id}`} row={r} live={live} />) : <li className="px-2 py-1 text-sm text-zinc-600">No lineup set.</li>}
+        {team.starters.length ? team.starters.map((r) => <Row key={`${r.slot}-${r.player.id}`} row={r} news={news} />) : <li className="px-2 py-1 text-sm text-zinc-600">No lineup set.</li>}
       </ul>
 
       <div className="text-[10px] uppercase tracking-wide text-zinc-500">Bench</div>
       <ul>
-        {team.bench.length ? team.bench.map((r) => <Row key={r.player.id} row={r} live={live} />) : <li className="px-2 py-1 text-sm text-zinc-600">Empty.</li>}
+        {team.bench.length ? team.bench.map((r) => <Row key={r.player.id} row={r} news={news} />) : <li className="px-2 py-1 text-sm text-zinc-600">Empty.</li>}
       </ul>
     </div>
   );
@@ -91,11 +93,14 @@ export default function MatchupCompare({
   myRosterId: number | null;
   onSelectSide: (rosterId: number) => void;
 }) {
+  // One lookup table instead of a linear scan of the news list per rendered row.
+  const news = useMemo(() => new Map((live?.players ?? []).map((n) => [n.player_id, n])), [live]);
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <TeamColumn team={me} live={live} selected={myRosterId === me.rosterId} onSelect={() => onSelectSide(me.rosterId)} />
+      <TeamColumn team={me} news={news} selected={myRosterId === me.rosterId} onSelect={() => onSelectSide(me.rosterId)} />
       {opponent ? (
-        <TeamColumn team={opponent} live={live} selected={myRosterId === opponent.rosterId} onSelect={() => onSelectSide(opponent.rosterId)} />
+        <TeamColumn team={opponent} news={news} selected={myRosterId === opponent.rosterId} onSelect={() => onSelectSide(opponent.rosterId)} />
       ) : (
         <div className="card flex items-center justify-center text-sm text-zinc-500">
           No opponent this week — this team is on a bye.

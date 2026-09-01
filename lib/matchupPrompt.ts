@@ -5,13 +5,13 @@
 // ("do not take a QB in the first three rounds"), it claims to be the highest authority,
 // and it would fight the ruleset for that title on a question it has nothing to say about.
 
-import type { LiveContextResult } from "./liveContext";
+import type { LiveContextResult, LivePlayerNews } from "./liveContext";
 import { renderLiveContext } from "./liveContext";
-import type { MatchupTeam, StartingSlot, TeamRow } from "./lineup";
+import type { MatchupTeam, Startability, StartingSlot, TeamRow } from "./lineup";
 import { SLOT_ELIGIBILITY } from "./lineup";
 import type { ScoringFormat } from "./sleeper";
 
-const STATUS_NOTE: Record<string, string> = {
+const STATUS_NOTE: Record<Startability, string> = {
   ir: "ON IR — cannot be started",
   taxi: "on the taxi squad — cannot be started",
   bye: "ON BYE this week — cannot be started",
@@ -69,9 +69,14 @@ Hard constraints:
 - Say what would change your mind: every close call needs the specific news condition that flips it.`;
 }
 
-const line = (r: TeamRow, live: LiveContextResult | null): string => {
+type NewsIndex = Map<string, LivePlayerNews>;
+
+const newsIndex = (live: LiveContextResult | null): NewsIndex =>
+  new Map((live?.players ?? []).map((n) => [n.player_id, n]));
+
+const line = (r: TeamRow, index: NewsIndex): string => {
   const p = r.player;
-  const news = live?.players.find((n) => n.player_id === p.id);
+  const news = index.get(p.id);
   const bits = [
     p.id,
     p.name,
@@ -81,31 +86,32 @@ const line = (r: TeamRow, live: LiveContextResult | null): string => {
     p.inj ? `Sleeper: ${p.inj}` : "",
     news ? `news: ${news.status}${news.confirmed ? " (confirmed)" : " (unconfirmed)"}` : "",
     r.points != null ? `${r.points} pts` : "",
-    STATUS_NOTE[r.status] ?? "",
+    STATUS_NOTE[r.status],
   ].filter(Boolean);
   return `  - ${bits.join(" | ")}`;
 };
 
-function teamBlock(team: MatchupTeam, label: string, live: LiveContextResult | null): string[] {
+function teamBlock(team: MatchupTeam, label: string, news: NewsIndex): string[] {
   const out = [`${label}: ${team.name}${team.record ? ` (${team.record})` : ""}${team.points != null ? ` — ${team.points} pts so far` : ""}`];
   out.push(" STARTERS:");
-  out.push(...(team.starters.length ? team.starters.map((r) => line(r, live)) : ["  (none set)"]));
+  out.push(...(team.starters.length ? team.starters.map((r) => line(r, news)) : ["  (none set)"]));
   out.push(" BENCH:");
-  out.push(...(team.bench.length ? team.bench.map((r) => line(r, live)) : ["  (empty)"]));
+  out.push(...(team.bench.length ? team.bench.map((r) => line(r, news)) : ["  (empty)"]));
   return out;
 }
 
 export function buildMatchupUserMessage(st: MatchupPromptInput): string {
   const lines: string[] = [];
+  const news = newsIndex(st.live);
   const phaseText = { pre: "has not started", live: "is in progress", final: "is over" }[st.phase];
 
   lines.push(`WEEK ${st.week} MATCHUP — the week ${phaseText}.`);
   if (st.playoffWeekStart && st.week >= st.playoffWeekStart) lines.push("This is a PLAYOFF week.");
   lines.push("");
-  lines.push(...teamBlock(st.me, "OPTIMIZE THIS TEAM", st.live));
+  lines.push(...teamBlock(st.me, "OPTIMIZE THIS TEAM", news));
   lines.push("");
   if (st.opponent) {
-    lines.push(...teamBlock(st.opponent, "OPPONENT", st.live));
+    lines.push(...teamBlock(st.opponent, "OPPONENT", news));
     lines.push("");
     lines.push("Compare the two teams' ranges of outcomes, not just their medians, and choose the floor/ceiling/balanced posture the ruleset calls for.");
   } else {
@@ -122,7 +128,7 @@ export function buildMatchupUserMessage(st: MatchupPromptInput): string {
   for (const slot of new Set(st.slots)) {
     const cands = st.legalBySlot.get(slot) ?? [];
     lines.push(` ${slot} (eligible: ${SLOT_ELIGIBILITY[slot].join("/")}):`);
-    lines.push(...(cands.length ? cands.map((r) => line(r, st.live)) : ["  (nobody legal — say so in alerts)"]));
+    lines.push(...(cands.length ? cands.map((r) => line(r, news)) : ["  (nobody legal — say so in alerts)"]));
   }
   lines.push("");
 

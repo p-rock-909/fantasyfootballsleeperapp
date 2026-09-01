@@ -157,15 +157,15 @@ const pool = new Map<string, LineupPlayer>(
 
 test("buildTeam aligns starters to slots and puts the rest on the bench", () => {
   const slots: StartingSlot[] = ["QB", "RB", "WR"];
-  const team = buildTeam(
-    roster({ players: ["qb1", "rb1", "wr1", "rb2"] }),
-    matchup({ starters: ["qb1", "rb1", "wr1"], players: ["qb1", "rb1", "wr1", "rb2"], points: 88.5, players_points: { rb1: 12.4 } }),
+  const team = buildTeam({
+    roster: roster({ players: ["qb1", "rb1", "wr1", "rb2"] }),
+    matchup: matchup({ starters: ["qb1", "rb1", "wr1"], players: ["qb1", "rb1", "wr1", "rb2"], points: 88.5, players_points: { rb1: 12.4 } }),
     users,
-    pool,
+    byId: pool,
     slots,
-    [],
-    5,
-  );
+    unsupportedSlots: [],
+    week: 5,
+  });
   assert.deepEqual(team.starters.map((r) => [r.slot, r.player.id]), [["QB", "qb1"], ["RB", "rb1"], ["WR", "wr1"]]);
   assert.deepEqual(team.bench.map((r) => r.player.id), ["rb2"]);
   assert.equal(team.points, 88.5);
@@ -174,45 +174,29 @@ test("buildTeam aligns starters to slots and puts the rest on the bench", () => 
 
 test("buildTeam keeps slot alignment when an empty slot is sent as '0'", () => {
   const slots: StartingSlot[] = ["QB", "RB", "WR"];
-  const team = buildTeam(
-    roster({ players: ["qb1", "wr1"] }),
-    matchup({ starters: ["qb1", "0", "wr1"], players: ["qb1", "wr1"] }),
+  const team = buildTeam({
+    roster: roster({ players: ["qb1", "wr1"] }),
+    matchup: matchup({ starters: ["qb1", "0", "wr1"], players: ["qb1", "wr1"] }),
     users,
-    pool,
+    byId: pool,
     slots,
-    [],
-    5,
-  );
+    unsupportedSlots: [],
+    week: 5,
+  });
   // The WR must still land in the WR slot, not slide up into RB.
   assert.deepEqual(team.starters.map((r) => [r.slot, r.player.id]), [["QB", "qb1"], ["WR", "wr1"]]);
   assert.deepEqual(team.bench, []);
 });
 
 test("buildTeam survives null player arrays and a starter missing from the pool", () => {
-  const team = buildTeam(
-    roster({ players: null, starters: ["qb1", "ghost"], reserve: null, taxi: null }),
-    undefined,
-    users,
-    pool,
-    ["QB", "RB"],
-    [],
-    5,
-  );
+  const team = buildTeam({ roster: roster({ players: null, starters: ["qb1", "ghost"], reserve: null, taxi: null }), matchup: undefined, users, byId: pool, slots: ["QB", "RB"], unsupportedSlots: [], week: 5 });
   assert.deepEqual(team.starters.map((r) => r.player.id), ["qb1"]);
   assert.deepEqual(team.bench, []);
   assert.equal(team.points, null);
 });
 
 test("buildTeam marks IR and taxi players from the roster's own lists", () => {
-  const team = buildTeam(
-    roster({ players: ["qb1", "rb1", "rb2"], reserve: ["rb1"], taxi: ["rb2"] }),
-    matchup({ starters: ["qb1"], players: ["qb1", "rb1", "rb2"] }),
-    users,
-    pool,
-    ["QB"],
-    [],
-    5,
-  );
+  const team = buildTeam({ roster: roster({ players: ["qb1", "rb1", "rb2"], reserve: ["rb1"], taxi: ["rb2"] }), matchup: matchup({ starters: ["qb1"], players: ["qb1", "rb1", "rb2"] }), users, byId: pool, slots: ["QB"], unsupportedSlots: [], week: 5 });
   const status = Object.fromEntries(team.bench.map((r) => [r.player.id, r.status]));
   assert.deepEqual(status, { rb1: "ir", rb2: "taxi" });
 });

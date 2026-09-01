@@ -23,6 +23,7 @@ export function buildSystemPrompt(preferences: string, fmt: LeagueFormat): strin
   const starters = [
     `QB ${s.QB}`, `RB ${s.RB}`, `WR ${s.WR}`, `TE ${s.TE}`,
     s.FLEX ? `FLEX ${s.FLEX}` : "", s.SUPER_FLEX ? `SUPERFLEX ${s.SUPER_FLEX}` : "", s.REC_FLEX ? `REC_FLEX ${s.REC_FLEX}` : "",
+    s.WRRB_FLEX ? `WRRB_FLEX ${s.WRRB_FLEX}` : "",
     `K ${s.K}`, `DEF ${s.DEF}`, `BENCH ${s.BN}`,
   ].filter(Boolean).join(", ");
   const league = `LEAGUE FORMAT

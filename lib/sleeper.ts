@@ -220,18 +220,25 @@ export function formatFromLeague(league: SleeperLeague): ScoringFormat {
 }
 
 export function leagueFormat(draft: SleeperDraft, league: SleeperLeague | null): LeagueFormat {
-  const slots = slotCounts(draft, league);
-  const ss = league?.scoring_settings ?? {};
-  const ppr = ss.rec ?? (draft.metadata.scoring_type === "ppr" ? 1 : draft.metadata.scoring_type === "half_ppr" ? 0.5 : 0);
+  // A league, where there is one, owns the scoring rules; the draft supplies the
+  // draft-only fields and stands in for a mock draft that has no league attached.
+  const pprFromDraft = draft.metadata.scoring_type === "ppr" ? 1 : draft.metadata.scoring_type === "half_ppr" ? 0.5 : 0;
+  const base: ScoringFormat = league
+    ? { ...formatFromLeague(league), ppr: league.scoring_settings?.rec ?? pprFromDraft }
+    : {
+        teams: draft.settings.teams,
+        scoring: scoringName(pprFromDraft),
+        ppr: pprFromDraft,
+        tePremium: 0,
+        superflex: slotCounts(draft, null).SUPER_FLEX > 0,
+        passTdPts: 4,
+        slots: slotCounts(draft, null),
+      };
   return {
+    ...base,
     teams: draft.settings.teams,
+    scoring: draft.metadata.scoring_type ?? base.scoring,
     rounds: draft.settings.rounds,
-    scoring: draft.metadata.scoring_type ?? scoringName(ppr),
-    ppr,
-    tePremium: ss.bonus_rec_te ?? 0,
-    superflex: slots.SUPER_FLEX > 0,
-    passTdPts: ss.pass_td ?? 4,
-    slots,
     draftType: draft.type,
     pickTimer: draft.settings.pick_timer,
   };

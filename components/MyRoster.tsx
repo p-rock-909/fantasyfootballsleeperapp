@@ -39,7 +39,7 @@ export default function MyRoster({ roster, analysis, fmt, picks, mySlot, byId }:
         )}
         {analysis && (
           <div className="mt-1 text-xs text-zinc-500">
-            FLEX {s.FLEX}{s.SUPER_FLEX ? ` · SF ${s.SUPER_FLEX}` : ""} · bench open {analysis.benchOpen} · picks left {analysis.totalOpen}
+            FLEX {s.FLEX}{s.REC_FLEX ? ` · REC ${s.REC_FLEX}` : ""}{s.WRRB_FLEX ? ` · W/R ${s.WRRB_FLEX}` : ""}{s.SUPER_FLEX ? ` · SF ${s.SUPER_FLEX}` : ""} · bench open {analysis.benchOpen} · picks left {analysis.totalOpen}
           </div>
         )}
         {analysis?.byeClashes.map((c) => (

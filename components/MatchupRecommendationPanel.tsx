@@ -17,7 +17,7 @@ export interface MatchupRecState {
   id: string | null;
 }
 
-const POSTURE_COPY: Record<string, string> = {
+const POSTURE_COPY: Record<MatchupRecommendation["strategy"]["posture"], string> = {
   floor: "Play it safe — protect a lead with stable volume.",
   ceiling: "Chase upside — you need differentiated outcomes.",
   balanced: "Balanced — the matchup is close or uncertain.",
@@ -31,26 +31,25 @@ export default function MatchupRecommendationPanel({
   onEvaluate,
   onClearHistory,
   canRun,
-  question,
-  setQuestion,
   effort,
   setEffort,
-  refreshNews,
-  setRefreshNews,
 }: {
   rec: MatchupRecState;
   history: MatchupLogEntry[];
-  onEvaluate: () => void;
+  onEvaluate: (question: string, refreshNews: boolean) => Promise<void> | void;
   onClearHistory: () => void;
   canRun: boolean;
-  question: string;
-  setQuestion: (q: string) => void;
   effort: Settings["effort"];
   setEffort: (e: Settings["effort"]) => void;
-  refreshNews: boolean;
-  setRefreshNews: (v: boolean) => void;
 }) {
   const [showHistory, setShowHistory] = useState(false);
+  // Plain form fields for one submit action — nothing outside this panel reads them.
+  const [question, setQuestion] = useState("");
+  const [refreshNews, setRefreshNews] = useState(false);
+  const submit = async () => {
+    await onEvaluate(question, refreshNews);
+    setRefreshNews(false);
+  };
   const prior = history.filter((e) => e.id !== rec.id);
   const d = rec.data;
 
@@ -69,7 +68,7 @@ export default function MatchupRecommendationPanel({
             <option value="medium">balanced</option>
             <option value="high">deep</option>
           </select>
-          <button className="btn btn-primary" disabled={rec.loading || !canRun} onClick={onEvaluate}>
+          <button className="btn btn-primary" disabled={rec.loading || !canRun} onClick={submit}>
             {rec.loading ? "Working…" : "Evaluate matchup"}
           </button>
         </div>
@@ -80,7 +79,7 @@ export default function MatchupRecommendationPanel({
         placeholder="Optional note (e.g. 'I'm down 20, I need a ceiling week', or paste breaking news)…"
         value={question}
         onChange={(e) => setQuestion(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && !rec.loading && canRun && onEvaluate()}
+        onKeyDown={(e) => e.key === "Enter" && !rec.loading && canRun && submit()}
       />
 
       {rec.loading && (

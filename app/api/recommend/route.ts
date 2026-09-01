@@ -6,12 +6,12 @@ import { activeProvider, LlmError } from "@/lib/llm";
 import { leagueFormat, sleeperFetch, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
 import { byeForTeam } from "@/lib/players";
 import { getPlayers } from "@/lib/playerPool";
-import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
+import { mergeRankings, type RankedPlayer } from "@/lib/rankings";
 import { turnInfo } from "@/lib/draftMath";
 import { analyzeRoster } from "@/lib/rosterNeeds";
 import { probGone, tierSummary } from "@/lib/availability";
 import { buildSystemPrompt, buildUserMessage, needsSummary } from "@/lib/prompt";
-import { defaultRankingRows } from "@/lib/defaultRankings";
+import { resolveRankingRows } from "@/lib/defaultRankings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a deep run can take a while on either provider; Vercel Pro allows up to 300s
@@ -55,10 +55,7 @@ export async function POST(request: Request) {
 
   // 2. Deterministic draft math.
   const fmt = leagueFormat(draft, league);
-  // The browser sends what it has; with nothing imported, fall back to the bundled template.
-  const rankingRows: RankingRow[] | null = req.rankings?.length
-    ? req.rankings.map((r) => ({ name: "", pos: null, team: null, ...r }))
-    : await defaultRankingRows(players);
+  const rankingRows = await resolveRankingRows(players, req.rankings);
   const ranked = mergeRankings(players, rankingRows, byeForTeam);
   const byId = new Map(ranked.map((p) => [p.id, p]));
   const takenIds = new Set(picks.map((p) => p.player_id));
