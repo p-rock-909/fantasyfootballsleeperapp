@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api, getPlayers } from "@/lib/client";
 import { byeForTeam } from "@/lib/players";
@@ -16,6 +15,7 @@ import {
   type SleeperUser,
 } from "@/lib/sleeper";
 import { appendMatchupLog, clearMatchupLog, loadRankings, newRecId, updateSettings, useMatchupLog, useSettings, type Settings } from "@/lib/storage";
+import AppNav from "./AppNav";
 import MatchupCompare from "./MatchupCompare";
 import MatchupRecommendationPanel, { type MatchupRecState } from "./MatchupRecommendationPanel";
 
@@ -160,8 +160,20 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
     }
   }
 
-  if (err) return <div className="p-6 text-red-300">{err} — <Link className="underline" href="/">back to setup</Link></div>;
-  if (!data || !league || !fmt || !settings || week == null) return <div className="p-6 text-zinc-400">Loading league…</div>;
+  // The nav belongs on the loading and error states too — those are exactly when someone
+  // wants to leave the page.
+  if (err || !data || !league || !fmt || !settings || week == null) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur">
+          <AppNav leagueId={leagueId} />
+        </header>
+        {err
+          ? <div className="p-6 text-red-300">{err}</div>
+          : <div className="p-6 text-zinc-400">Loading league…</div>}
+      </div>
+    );
+  }
 
   const label = (rosterId: number) => {
     const r = rosterById.get(rosterId);
@@ -172,7 +184,7 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <Link href="/" className="text-zinc-400 hover:text-zinc-200">← Setup</Link>
+          <AppNav leagueId={leagueId} />
           <span className="font-semibold">{league.name}</span>
           <span className="text-zinc-500">{fmt.teams} tm · {fmt.scoring}{fmt.superflex ? " · SF" : ""}{fmt.tePremium ? " · TEP" : ""} · {league.season}</span>
           <span className={`pill ${phase === "live" ? "bg-emerald-900 text-emerald-200" : phase === "final" ? "bg-zinc-800 text-zinc-300" : "bg-sky-900 text-sky-200"}`}>
@@ -207,9 +219,6 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
             </select>
           </label>
 
-          {settings.draftId && (
-            <Link href={`/draft/${settings.draftId}`} className="ml-auto text-zinc-400 hover:text-zinc-200">Draft board →</Link>
-          )}
         </div>
       </header>
 
