@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  candidatesForSlot,
-  checkLineup,
   buildTeam,
+  checkLineup,
+  isEligible,
   matchupPhase,
   orderedSlots,
   pairMatchups,
@@ -80,7 +80,22 @@ test("orderedSlots treats IR and TAXI as non-starting, not unsupported", () => {
 });
 
 test("orderedSlots handles a null roster_positions", () => {
-  assert.deepEqual(orderedSlots(null), { slots: [], unsupported: [] });
+  assert.deepEqual(orderedSlots(null), { slots: [], starterIndex: [], unsupported: [] });
+});
+
+test("orderedSlots maps each slot to its real position in Sleeper's starters array", () => {
+  // An IDP slot still occupies an entry in `starters`, so the RB here is starters[2],
+  // not starters[1] — indexing by position in `slots` would shift it into the QB's place.
+  const { slots, starterIndex, unsupported } = orderedSlots(["QB", "DL", "RB", "BN"]);
+  assert.deepEqual(slots, ["QB", "RB"]);
+  assert.deepEqual(starterIndex, [0, 2]);
+  assert.deepEqual(unsupported, ["DL"]);
+});
+
+test("orderedSlots does not let bench slots consume a starters index", () => {
+  // BN/IR/TAXI are absent from `starters` entirely, so they must not advance the counter.
+  const { starterIndex } = orderedSlots(["QB", "BN", "RB", "IR", "WR"]);
+  assert.deepEqual(starterIndex, [0, 1, 2]);
 });
 
 // ---- startability ----
@@ -118,11 +133,11 @@ test("startability precedence: reserve beats taxi beats bye beats injury", () =>
   assert.equal(startability(p("a", "RB", { inj: "Out" }), ctx({ week: 5 })), "out");
 });
 
-// ---- candidatesForSlot ----
+// ---- isEligible ----
 
-test("candidatesForSlot enforces each slot's eligibility", () => {
-  const pool = [p("qb", "QB"), p("rb", "RB"), p("wr", "WR"), p("te", "TE"), p("k", "K"), p("def", "DEF")];
-  const idsFor = (slot: StartingSlot) => candidatesForSlot(slot, pool).map((x) => x.id);
+test("isEligible enforces each slot's eligibility", () => {
+  const roster = [p("qb", "QB"), p("rb", "RB"), p("wr", "WR"), p("te", "TE"), p("k", "K"), p("def", "DEF")];
+  const idsFor = (slot: StartingSlot) => roster.filter((x) => isEligible(slot, x.pos)).map((x) => x.id);
 
   assert.deepEqual(idsFor("SUPER_FLEX"), ["qb", "rb", "wr", "te"]);
   assert.deepEqual(idsFor("FLEX"), ["rb", "wr", "te"]);
@@ -162,14 +177,32 @@ test("buildTeam aligns starters to slots and puts the rest on the bench", () => 
     matchup: matchup({ starters: ["qb1", "rb1", "wr1"], players: ["qb1", "rb1", "wr1", "rb2"], points: 88.5, players_points: { rb1: 12.4 } }),
     users,
     byId: pool,
-    slots,
-    unsupportedSlots: [],
+    lineup: { slots, starterIndex: slots.map((_, i) => i), unsupported: [] },
     week: 5,
   });
   assert.deepEqual(team.starters.map((r) => [r.slot, r.player.id]), [["QB", "qb1"], ["RB", "rb1"], ["WR", "wr1"]]);
   assert.deepEqual(team.bench.map((r) => r.player.id), ["rb2"]);
   assert.equal(team.points, 88.5);
   assert.equal(team.starters[1].points, 12.4);
+});
+
+test("buildTeam keeps slot alignment when an unsupported slot sits between supported ones", () => {
+  // An IDP league: roster_positions ["QB","DL","RB","BN"], so Sleeper's starters array is
+  // [qb, dl, rb]. Indexing it by position in `slots` would put the DL's id in the RB slot
+  // and strand the real RB on the bench.
+  const lineup = orderedSlots(["QB", "DL", "RB", "BN"]);
+  const team = buildTeam({
+    roster: roster({ players: ["qb1", "rb1", "rb2"] }),
+    matchup: matchup({ starters: ["qb1", "dl1", "rb1"], players: ["qb1", "rb1", "rb2"] }),
+    users,
+    byId: pool,
+    lineup,
+    week: 5,
+  });
+  assert.deepEqual(team.starters.map((r) => [r.slot, r.player.id]), [["QB", "qb1"], ["RB", "rb1"]]);
+  // The IDP starter isn't in our pool at all, and the real RB must not be double-counted.
+  assert.deepEqual(team.bench.map((r) => r.player.id), ["rb2"]);
+  assert.deepEqual(team.unsupportedSlots, ["DL"]);
 });
 
 test("buildTeam keeps slot alignment when an empty slot is sent as '0'", () => {
@@ -179,8 +212,7 @@ test("buildTeam keeps slot alignment when an empty slot is sent as '0'", () => {
     matchup: matchup({ starters: ["qb1", "0", "wr1"], players: ["qb1", "wr1"] }),
     users,
     byId: pool,
-    slots,
-    unsupportedSlots: [],
+    lineup: { slots, starterIndex: slots.map((_, i) => i), unsupported: [] },
     week: 5,
   });
   // The WR must still land in the WR slot, not slide up into RB.
@@ -189,14 +221,14 @@ test("buildTeam keeps slot alignment when an empty slot is sent as '0'", () => {
 });
 
 test("buildTeam survives null player arrays and a starter missing from the pool", () => {
-  const team = buildTeam({ roster: roster({ players: null, starters: ["qb1", "ghost"], reserve: null, taxi: null }), matchup: undefined, users, byId: pool, slots: ["QB", "RB"], unsupportedSlots: [], week: 5 });
+  const team = buildTeam({ roster: roster({ players: null, starters: ["qb1", "ghost"], reserve: null, taxi: null }), matchup: undefined, users, byId: pool, lineup: { slots: ["QB", "RB"], starterIndex: ["QB", "RB"].map((_, i) => i), unsupported: [] }, week: 5 });
   assert.deepEqual(team.starters.map((r) => r.player.id), ["qb1"]);
   assert.deepEqual(team.bench, []);
   assert.equal(team.points, null);
 });
 
 test("buildTeam marks IR and taxi players from the roster's own lists", () => {
-  const team = buildTeam({ roster: roster({ players: ["qb1", "rb1", "rb2"], reserve: ["rb1"], taxi: ["rb2"] }), matchup: matchup({ starters: ["qb1"], players: ["qb1", "rb1", "rb2"] }), users, byId: pool, slots: ["QB"], unsupportedSlots: [], week: 5 });
+  const team = buildTeam({ roster: roster({ players: ["qb1", "rb1", "rb2"], reserve: ["rb1"], taxi: ["rb2"] }), matchup: matchup({ starters: ["qb1"], players: ["qb1", "rb1", "rb2"] }), users, byId: pool, lineup: { slots: ["QB"], starterIndex: ["QB"].map((_, i) => i), unsupported: [] }, week: 5 });
   const status = Object.fromEntries(team.bench.map((r) => [r.player.id, r.status]));
   assert.deepEqual(status, { rb1: "ir", rb2: "taxi" });
 });

@@ -4,7 +4,7 @@
 import type { Player } from "./sleeper";
 import type { RankingRow } from "./rankings";
 import type { LlmUsage } from "./llm/types";
-import type { MatchupRecommendation, RecommendationResponse } from "./schema";
+import type { MatchupMeta, MatchupRecommendation, RecommendationResponse } from "./schema";
 import type { LiveContextResult } from "./liveContext";
 
 export interface Settings {
@@ -185,7 +185,7 @@ export interface MatchupLogEntry {
   /** App-generated lineup problems. Kept apart from the model's own `alerts`. */
   validation: { ok: boolean; issues: string[] } | null;
   error: string | null;
-  meta: Record<string, unknown> | null;
+  meta: MatchupMeta | null;
 }
 
 // Entries carry a whole news brief, so they are much larger than a draft entry and

@@ -33,6 +33,18 @@ export interface LineupPlayer {
   bye: number | null;
 }
 
+export interface OrderedLineup {
+  slots: StartingSlot[];
+  /**
+   * Where each supported slot sits in Sleeper's `starters` array. Not the same as the
+   * index into `slots`: an unsupported slot (an IDP position) still occupies an entry in
+   * `starters`, so indexing `starters` by position in `slots` would shift every player
+   * after it into the wrong slot.
+   */
+  starterIndex: number[];
+  unsupported: string[];
+}
+
 /**
  * The ordered starting lineup from a league's `roster_positions`.
  *
@@ -41,14 +53,22 @@ export interface LineupPlayer {
  * treating an unknown token as a startable slot would render a slot nothing can fill.
  * They come back in `unsupported` instead, for the UI to disclose.
  */
-export function orderedSlots(positions: string[] | null | undefined): { slots: StartingSlot[]; unsupported: string[] } {
+export function orderedSlots(positions: string[] | null | undefined): OrderedLineup {
   const slots: StartingSlot[] = [];
+  const starterIndex: number[] = [];
   const unsupported: string[] = [];
+  let i = 0; // position in `starters`, which covers every non-bench slot, supported or not
   for (const p of positions ?? []) {
-    if (STARTING_SLOTS.has(p)) slots.push(p as StartingSlot);
-    else if (!NON_STARTING.has(p)) unsupported.push(p);
+    if (NON_STARTING.has(p)) continue;
+    if (STARTING_SLOTS.has(p)) {
+      slots.push(p as StartingSlot);
+      starterIndex.push(i);
+    } else {
+      unsupported.push(p);
+    }
+    i++;
   }
-  return { slots, unsupported };
+  return { slots, starterIndex, unsupported };
 }
 
 export type Startability = "startable" | "ir" | "taxi" | "bye" | "out";
@@ -77,10 +97,6 @@ export function startability(player: LineupPlayer, ctx: StartabilityContext): St
 }
 
 export const isEligible = (slot: StartingSlot, pos: Position): boolean => SLOT_ELIGIBILITY[slot].includes(pos);
-
-export function candidatesForSlot<T extends LineupPlayer>(slot: StartingSlot, players: T[]): T[] {
-  return players.filter((p) => isEligible(slot, p.pos));
-}
 
 // ---- Team assembly ----
 
@@ -117,14 +133,14 @@ export interface BuildTeamInput {
   matchup: SleeperMatchup | undefined;
   users: Map<string, SleeperUser>;
   byId: Map<string, LineupPlayer>;
-  slots: StartingSlot[];
-  unsupportedSlots: string[];
+  lineup: OrderedLineup;
   week: number;
 }
 
-// Named rather than positional: `slots` and `unsupportedSlots` are both string-ish and
-// adjacent, so a transposition would type-check and silently build the wrong team.
-export function buildTeam({ roster, matchup, users, byId, slots, unsupportedSlots, week }: BuildTeamInput): MatchupTeam {
+// Named rather than positional — several of these are structurally similar and a
+// transposition would type-check while silently building the wrong team.
+export function buildTeam({ roster, matchup, users, byId, lineup, week }: BuildTeamInput): MatchupTeam {
+  const { slots, starterIndex, unsupported: unsupportedSlots } = lineup;
   const ctx: StartabilityContext = { reserve: new Set(ids(roster.reserve)), taxi: new Set(ids(roster.taxi)), week };
   const points = matchup?.players_points ?? null;
   const row = (id: string, slot: StartingSlot | null): TeamRow | null => {
@@ -133,18 +149,21 @@ export function buildTeam({ roster, matchup, users, byId, slots, unsupportedSlot
     return { player, status: startability(player, ctx), slot, points: points?.[id] ?? null };
   };
 
-  // `starters` is positionally aligned with `roster_positions` minus bench, and carries
-  // "0" for an empty slot — so index by slot, and let `ids()` handle the placeholder.
+  // `starters` is positionally aligned with every non-bench entry of `roster_positions`
+  // — including the IDP slots this app doesn't support — and carries "0" for an empty
+  // slot. Index through `starterIndex` so an unsupported slot doesn't shift the rest.
   const rawStarters = matchup?.starters ?? roster.starters ?? [];
   const starters: TeamRow[] = [];
   const startedIds = new Set<string>();
   slots.forEach((slot, i) => {
-    const id = rawStarters[i];
+    const id = rawStarters[starterIndex[i]];
     if (!id || id === "0") return;
     const r = row(id, slot);
     startedIds.add(id);
     if (r) starters.push(r);
   });
+  // Players in an unsupported slot are started, just not by us — keep them off the bench.
+  for (const [i, id] of rawStarters.entries()) if (id && id !== "0" && !starterIndex.includes(i)) startedIds.add(id);
 
   const rostered = ids(matchup?.players ?? roster.players);
   const bench = rostered.filter((id) => !startedIds.has(id)).map((id) => row(id, null)).filter((r): r is TeamRow => !!r);

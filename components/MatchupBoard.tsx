@@ -80,7 +80,7 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
   const league = data?.league ?? null;
   const rosters = data?.rosters;
   const fmt = useMemo(() => (league ? formatFromLeague(league) : null), [league]);
-  const { slots, unsupported } = useMemo(() => orderedSlots(league?.roster_positions), [league]);
+  const lineup = useMemo(() => orderedSlots(league?.roster_positions), [league]);
   const ranked = useMemo(() => (data ? mergeRankings(data.players, rankings, byeForTeam) : []), [data, rankings]);
   const byId = useMemo(() => new Map<string, RankedPlayer>(ranked.map((p) => [p.id, p])), [ranked]);
   const userById = useMemo(() => new Map((data?.users ?? []).map((u) => [u.user_id, u])), [data]);
@@ -110,10 +110,10 @@ export default function MatchupBoard({ leagueId }: { leagueId: string }) {
       .map((id) => {
         const roster = rosterById.get(id);
         if (!roster) return null;
-        return buildTeam({ roster, matchup: matchupByRoster.get(id), users: userById, byId, slots, unsupportedSlots: unsupported, week });
+        return buildTeam({ roster, matchup: matchupByRoster.get(id), users: userById, byId, lineup, week });
       })
       .filter((t): t is NonNullable<typeof t> => !!t);
-  }, [pair, rosterById, matchupByRoster, userById, byId, slots, unsupported, week]);
+  }, [pair, rosterById, matchupByRoster, userById, byId, lineup, week]);
 
   // The selected side first, so "optimize this one" reads left to right.
   const me = teams.find((t) => t.rosterId === myRosterId) ?? teams[0] ?? null;

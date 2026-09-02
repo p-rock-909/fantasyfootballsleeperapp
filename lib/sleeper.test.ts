@@ -108,6 +108,18 @@ test("leagueFormat falls back to the draft's scoring_type when a league has no r
   assert.equal(leagueFormat(draft({ metadata: { scoring_type: "ppr" } }), league({ scoring_settings: { rec: 0 } })).ppr, 0);
 });
 
+test("leagueFormat falls back to draft slots when a league has empty roster_positions", () => {
+  // Regression: delegating wholesale to formatFromLeague reported a lineup of all zeros
+  // here, which blanks the roster panel and silently disables superflex detection.
+  const d = draft({ settings: { teams: 12, rounds: 15, pick_timer: 60, slots_qb: 1, slots_rb: 2, slots_super_flex: 1 } });
+  const fmt = leagueFormat(d, league({ roster_positions: [], scoring_settings: { rec: 1, bonus_rec_te: 0.5 } }));
+  assert.equal(fmt.slots.RB, 2);
+  assert.equal(fmt.superflex, true);
+  // ...while still honouring the league's own scoring settings.
+  assert.equal(fmt.ppr, 1);
+  assert.equal(fmt.tePremium, 0.5);
+});
+
 test("leagueFormat flags superflex and TE premium", () => {
   const l = league({
     roster_positions: ["QB", "SUPER_FLEX", "TE", "BN"],

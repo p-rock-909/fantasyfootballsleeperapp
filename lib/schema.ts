@@ -94,3 +94,20 @@ export const MatchupRecommendRequest = z.object({
   refreshNews: z.boolean().optional().describe("Bypass the cached live-context lookup"),
 });
 export type MatchupRecommendRequest = z.infer<typeof MatchupRecommendRequest>;
+
+/** The envelope /api/matchup/recommend returns alongside the recommendation. */
+export interface MatchupMeta {
+  provider: string;
+  model: string;
+  usage: { inputTokens: number; outputTokens: number; thinkingTokens?: number; cachedInputTokens?: number };
+  week: number;
+  phase: "pre" | "live" | "final";
+  grounded: boolean;
+  newsModel: string | null;
+  /** Why the news lookup produced nothing, when it did. Null when grounded. */
+  newsUnavailable: string | null;
+  retrievedAt: string | null;
+  poolAgeMinutes: number;
+  myTeam: string;
+  opponentTeam: string | null;
+}

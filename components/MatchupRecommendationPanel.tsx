@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { LiveContextResult } from "@/lib/liveContext";
-import type { MatchupRecommendation } from "@/lib/schema";
+import type { MatchupMeta, MatchupRecommendation } from "@/lib/schema";
 import type { MatchupLogEntry, Settings } from "@/lib/storage";
 import RawJson from "./RawJson";
 
@@ -13,7 +13,7 @@ export interface MatchupRecState {
   liveContext: LiveContextResult | null;
   validation: { ok: boolean; issues: string[] } | null;
   error: string | null;
-  meta: Record<string, unknown> | null;
+  meta: MatchupMeta | null;
   id: string | null;
 }
 
@@ -189,15 +189,16 @@ export default function MatchupRecommendationPanel({
 }
 
 /** Where the news came from, or a plain statement that there wasn't any. */
-function Grounding({ live, meta }: { live: LiveContextResult | null; meta: Record<string, unknown> | null }) {
+function Grounding({ live, meta }: { live: LiveContextResult | null; meta: MatchupMeta | null }) {
   const [open, setOpen] = useState(false);
-  const poolAge = typeof meta?.poolAgeMinutes === "number" ? meta.poolAgeMinutes : null;
+  const poolAge = meta?.poolAgeMinutes ?? null;
 
   if (!live) {
     return (
       <div className="rounded-md border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-300">
-        <b className="text-zinc-100">Not grounded in current news.</b> The live lookup didn&apos;t run — no <code>GEMINI_API_KEY</code>,
-        or the search failed. This recommendation comes from roster data plus the model&apos;s own knowledge, and Sleeper&apos;s injury
+        <b className="text-zinc-100">Not grounded in current news.</b>{" "}
+        {meta?.newsUnavailable ? <span className="text-zinc-400">{meta.newsUnavailable}</span> : "The live lookup did not run."}{" "}
+        This recommendation comes from roster data plus the model&apos;s own knowledge, and Sleeper&apos;s injury
         designations{poolAge != null ? ` are up to ${poolAge} minutes old` : ""}. Check every questionable player yourself before kickoff.
       </div>
     );

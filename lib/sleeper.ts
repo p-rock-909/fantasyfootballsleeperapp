@@ -203,41 +203,40 @@ export interface LeagueFormat extends ScoringFormat {
 
 const scoringName = (ppr: number) => (ppr >= 1 ? "ppr" : ppr > 0 ? "half_ppr" : "standard");
 
+/**
+ * The scoring half of a format. Shared by both entry points; they differ only in where
+ * the lineup slots come from and what `rec` falls back to when the league doesn't set it.
+ */
+function scoringFrom(scoringSettings: Record<string, number> | undefined, fallbackPpr: number) {
+  const ss = scoringSettings ?? {};
+  const ppr = ss.rec ?? fallbackPpr;
+  return { ppr, scoring: scoringName(ppr), tePremium: ss.bonus_rec_te ?? 0, passTdPts: ss.pass_td ?? 4 };
+}
+
 /** In-season format, derived from the league alone. */
 export function formatFromLeague(league: SleeperLeague): ScoringFormat {
-  const ss = league.scoring_settings ?? {};
-  const ppr = ss.rec ?? 0;
   const slots = slotCountsFromPositions(league.roster_positions ?? []);
   return {
     teams: league.total_rosters,
-    scoring: scoringName(ppr),
-    ppr,
-    tePremium: ss.bonus_rec_te ?? 0,
+    ...scoringFrom(league.scoring_settings, 0),
     superflex: slots.SUPER_FLEX > 0,
-    passTdPts: ss.pass_td ?? 4,
     slots,
   };
 }
 
 export function leagueFormat(draft: SleeperDraft, league: SleeperLeague | null): LeagueFormat {
-  // A league, where there is one, owns the scoring rules; the draft supplies the
-  // draft-only fields and stands in for a mock draft that has no league attached.
+  // The league owns scoring where there is one; the draft's `scoring_type` covers a mock
+  // draft, or a league whose scoring_settings omits `rec`. Slots come from the league's
+  // roster_positions when it has them, else the draft's slot_* settings.
   const pprFromDraft = draft.metadata.scoring_type === "ppr" ? 1 : draft.metadata.scoring_type === "half_ppr" ? 0.5 : 0;
-  const base: ScoringFormat = league
-    ? { ...formatFromLeague(league), ppr: league.scoring_settings?.rec ?? pprFromDraft }
-    : {
-        teams: draft.settings.teams,
-        scoring: scoringName(pprFromDraft),
-        ppr: pprFromDraft,
-        tePremium: 0,
-        superflex: slotCounts(draft, null).SUPER_FLEX > 0,
-        passTdPts: 4,
-        slots: slotCounts(draft, null),
-      };
+  const scoring = scoringFrom(league?.scoring_settings, pprFromDraft);
+  const slots = slotCounts(draft, league);
   return {
-    ...base,
+    ...scoring,
     teams: draft.settings.teams,
-    scoring: draft.metadata.scoring_type ?? base.scoring,
+    scoring: draft.metadata.scoring_type ?? scoring.scoring,
+    superflex: slots.SUPER_FLEX > 0,
+    slots,
     rounds: draft.settings.rounds,
     draftType: draft.type,
     pickTimer: draft.settings.pick_timer,

@@ -33,7 +33,12 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a grounded news lookup plus a deep run; Vercel Pro allows up to 300s
 
 async function getRules(): Promise<string> {
-  return readFile(path.join(process.cwd(), "content", "start-sit-rules.md"), "utf8");
+  try {
+    return await readFile(path.join(process.cwd(), "content", "start-sit-rules.md"), "utf8");
+  } catch {
+    // Rejecting here would surface as "Sleeper fetch failed" from the Promise.all below.
+    throw new Error("content/start-sit-rules.md is missing from the deployment; the start/sit rules cannot be loaded.");
+  }
 }
 
 export async function POST(request: Request) {
@@ -64,7 +69,9 @@ export async function POST(request: Request) {
       getRules(),
     ]);
   } catch (e) {
-    return NextResponse.json({ error: `Sleeper fetch failed: ${(e as Error).message}` }, { status: 502 });
+    const message = (e as Error).message;
+    const isRules = message.includes("start-sit-rules.md");
+    return NextResponse.json({ error: isRules ? message : `Sleeper fetch failed: ${message}` }, { status: isRules ? 500 : 502 });
   }
   if (!matchups.length) {
     return NextResponse.json({ error: `This league has no week ${req.week} schedule yet.` }, { status: 400 });
@@ -78,7 +85,8 @@ export async function POST(request: Request) {
   }
 
   const fmt = formatFromLeague(league);
-  const { slots, unsupported } = orderedSlots(league.roster_positions);
+  const lineup = orderedSlots(league.roster_positions);
+  const { slots, unsupported } = lineup;
   if (!slots.length) return NextResponse.json({ error: "This league has no supported starting slots." }, { status: 400 });
 
   const rankingRows = await resolveRankingRows(pool.players, req.rankings);
@@ -91,7 +99,7 @@ export async function POST(request: Request) {
   const team = (rosterId: number) => {
     const roster = rosterById.get(rosterId);
     if (!roster) return null;
-    return buildTeam({ roster, matchup: matchupByRoster.get(rosterId), users: userById, byId, slots, unsupportedSlots: unsupported, week: req.week });
+    return buildTeam({ roster, matchup: matchupByRoster.get(rosterId), users: userById, byId, lineup, week: req.week });
   };
   const me = team(req.myRosterId);
   if (!me) return NextResponse.json({ error: "That roster is not in this league." }, { status: 400 });
@@ -115,7 +123,7 @@ export async function POST(request: Request) {
   const newsPlayers = [...me.starters, ...me.bench, ...(opponent?.starters ?? [])]
     .filter((r) => r.status === "startable")
     .map((r) => r.player);
-  const live = await fetchLiveContext({
+  const news = await fetchLiveContext({
     leagueId: req.leagueId,
     week: req.week,
     matchupKey: req.matchupKey,
@@ -123,6 +131,7 @@ export async function POST(request: Request) {
     players: newsPlayers,
     refresh: req.refreshNews,
   });
+  const live = news.value;
 
   // 5. The model.
   const system = buildMatchupSystemPrompt(rules, fmt, league.settings?.playoff_week_start ?? null);
@@ -172,6 +181,7 @@ export async function POST(request: Request) {
         phase,
         grounded: !!live,
         newsModel: live?.model ?? null,
+        newsUnavailable: news.unavailable,
         retrievedAt: live?.retrievedAt ?? null,
         poolAgeMinutes: pool.ageMinutes,
         myTeam: me.name,

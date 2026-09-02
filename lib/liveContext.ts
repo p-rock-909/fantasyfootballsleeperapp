@@ -61,6 +61,18 @@ export interface LiveContextResult extends LiveContext {
   model: string;
 }
 
+/**
+ * Why there is no news, when there isn't any. Without this the headline feature can fail
+ * permanently — a rejected request shape, say — while the UI only ever says "the search
+ * failed", and nothing distinguishes that from "no key configured".
+ */
+export interface LiveContextOutcome {
+  value: LiveContextResult | null;
+  unavailable: string | null;
+}
+
+const TIMEOUT_MS = 90_000;
+
 // The ruleset's own source hierarchy, so retrieval and reasoning rank evidence the same way.
 const RETRIEVAL_SYSTEM = `You are a fantasy football news researcher. Search the web for the current status of specific NFL players and games, and report only what you find.
 
@@ -140,34 +152,39 @@ function buildQuery({ week, season, players }: LiveContextRequest): string {
  * missing, the call fails, grounding returns nothing, or the answer misses the schema.
  * The caller degrades to an un-grounded recommendation and tells the user.
  */
-export async function fetchLiveContext(req: LiveContextRequest): Promise<LiveContextResult | null> {
-  if (!process.env.GEMINI_API_KEY) return null;
-  if (!req.players.length) return null;
+export async function fetchLiveContext(req: LiveContextRequest): Promise<LiveContextOutcome> {
+  if (!process.env.GEMINI_API_KEY) return { value: null, unavailable: "GEMINI_API_KEY is not set on the server." };
+  if (!req.players.length) return { value: null, unavailable: "No startable players to look up." };
 
   const key = cacheKey(req.leagueId, req.week, req.matchupKey);
   if (!req.refresh) {
     const hit = readCache(key);
-    if (hit) return hit;
+    if (hit) return { value: hit, unavailable: null };
   }
 
   try {
     const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const response = await client.models.generateContent({
-      model: MODEL,
-      contents: buildQuery(req),
-      config: {
-        systemInstruction: RETRIEVAL_SYSTEM,
-        maxOutputTokens: MAX_OUTPUT_TOKENS,
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseJsonSchema: geminiJsonSchema(LiveContext),
-      },
-    });
+    // A hang is not an error, so try/catch alone would let a stalled connection eat the
+    // whole 300s budget and take the recommendation down with it.
+    const response = await withTimeout(
+      client.models.generateContent({
+        model: MODEL,
+        contents: buildQuery(req),
+        config: {
+          systemInstruction: RETRIEVAL_SYSTEM,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          responseJsonSchema: geminiJsonSchema(LiveContext),
+        },
+      }),
+      TIMEOUT_MS,
+    );
 
     const text = response.text;
-    if (!text) return null;
+    if (!text) return fail("The news search returned an empty answer.");
     const parsed = LiveContext.safeParse(safeJson(text));
-    if (!parsed.success) return null;
+    if (!parsed.success) return fail(`The news search returned an answer that missed the schema: ${parsed.error.issues[0]?.message ?? "unknown"}`);
 
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
     const sources: LiveSource[] = [];
@@ -186,11 +203,27 @@ export async function fetchLiveContext(req: LiveContextRequest): Promise<LiveCon
       model: response.modelVersion || MODEL,
     };
     writeCache(key, value);
-    return value;
-  } catch {
-    // Deliberately swallowed: a start/sit answer without news beats no answer at kickoff.
-    return null;
+    return { value, unavailable: null };
+  } catch (e) {
+    // Never fatal — a start/sit answer without news beats no answer at kickoff — but it
+    // is reported, not swallowed, so a permanently broken lookup is diagnosable.
+    return fail((e as Error).message || "The news search failed.");
   }
+}
+
+function fail(reason: string): LiveContextOutcome {
+  console.warn(`[liveContext] ${reason}`);
+  return { value: null, unavailable: reason };
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`The news search timed out after ${Math.round(ms / 1000)}s.`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer)) as Promise<T>;
 }
 
 /** The news brief as the start/sit prompt sees it. */
