@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { MatchupRecommendRequest, MatchupRecommendation } from "@/lib/schema";
+import { MatchupRecommendRequest, MatchupRecommendation, type MatchupMeta } from "@/lib/schema";
 import { activeProvider, LlmError } from "@/lib/llm";
 import {
   formatFromLeague,
@@ -32,12 +32,14 @@ import { buildMatchupSystemPrompt, buildMatchupUserMessage } from "@/lib/matchup
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a grounded news lookup plus a deep run; Vercel Pro allows up to 300s
 
+/** Thrown so a missing ruleset is distinguishable from a Sleeper failure in the Promise.all below. */
+class MissingRulesError extends Error {}
+
 async function getRules(): Promise<string> {
   try {
     return await readFile(path.join(process.cwd(), "content", "start-sit-rules.md"), "utf8");
   } catch {
-    // Rejecting here would surface as "Sleeper fetch failed" from the Promise.all below.
-    throw new Error("content/start-sit-rules.md is missing from the deployment; the start/sit rules cannot be loaded.");
+    throw new MissingRulesError("content/start-sit-rules.md is missing from the deployment; the start/sit rules cannot be loaded.");
   }
 }
 
@@ -69,9 +71,8 @@ export async function POST(request: Request) {
       getRules(),
     ]);
   } catch (e) {
-    const message = (e as Error).message;
-    const isRules = message.includes("start-sit-rules.md");
-    return NextResponse.json({ error: isRules ? message : `Sleeper fetch failed: ${message}` }, { status: isRules ? 500 : 502 });
+    if (e instanceof MissingRulesError) return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: `Sleeper fetch failed: ${(e as Error).message}` }, { status: 502 });
   }
   if (!matchups.length) {
     return NextResponse.json({ error: `This league has no week ${req.week} schedule yet.` }, { status: 400 });
@@ -186,7 +187,7 @@ export async function POST(request: Request) {
         poolAgeMinutes: pool.ageMinutes,
         myTeam: me.name,
         opponentTeam: opponent?.name ?? null,
-      },
+      } satisfies MatchupMeta,
     });
   } catch (e) {
     if (e instanceof LlmError) return NextResponse.json({ error: e.message, detail: e.detail }, { status: e.status });
