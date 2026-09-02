@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, getPlayers } from "@/lib/client";
 import { leagueFormat, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
@@ -15,6 +14,7 @@ import Recommendations from "./Recommendations";
 import MyRoster from "./MyRoster";
 import SettingsDrawer from "./SettingsDrawer";
 import RankingsImport from "./RankingsImport";
+import AppNav from "./AppNav";
 
 const POLL_DRAFTING_MS = 5000;
 const POLL_IDLE_MS = 30000;
@@ -141,8 +141,20 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
 
   const updateSettings = (patch: Partial<Settings>) => persistSettings(patch);
 
-  if (err) return <div className="p-6 text-red-300">{err} — <Link className="underline" href="/">back to setup</Link></div>;
-  if (!draft || !turn || !fmt || !players || !settings) return <div className="p-6 text-zinc-400">Loading draft…</div>;
+  // The nav belongs on the loading and error states too — those are exactly when someone
+  // wants to leave the page.
+  if (err || !draft || !turn || !fmt || !players || !settings) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur">
+          <AppNav draftId={draftId} />
+        </header>
+        {err
+          ? <div className="p-6 text-red-300">{err}</div>
+          : <div className="p-6 text-zinc-400">Loading draft…</div>}
+      </div>
+    );
+  }
 
   const clock = secondsLeft(draft, now);
   const staleRec = rec.data && rec.forPick !== turn.currentPick;
@@ -151,7 +163,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <Link href="/" className="text-zinc-400 hover:text-zinc-200">← Setup</Link>
+          <AppNav draftId={draftId} leagueId={draft.league_id} />
           <span className="font-semibold">{draft.metadata?.name || league?.name || `Draft ${draftId}`}</span>
           <span className="text-zinc-500">{fmt.teams} tm · {fmt.scoring}{fmt.superflex ? " · SF" : ""}{fmt.tePremium ? " · TEP" : ""} · {draft.type}</span>
           <span className={`pill ${draft.status === "drafting" ? "bg-emerald-900 text-emerald-200" : "bg-zinc-800 text-zinc-300"}`}>{draft.status.replace("_", " ")}</span>
@@ -168,9 +180,6 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
             {Array.from({ length: fmt.teams }, (_, i) => i + 1).map((s) => <option key={s} value={s}>Slot {s}</option>)}
           </select>
           <div className="ml-auto flex gap-2">
-            {draft.league_id && (
-              <Link className="btn btn-ghost" href={`/league/${draft.league_id}/matchups`} title="In-season matchups and start/sit">Matchups</Link>
-            )}
             <button className="btn btn-ghost" onClick={() => setPanel(panel === "rankings" ? "none" : "rankings")}>
               Rankings {rankings
                 ? <span className="pill bg-emerald-900 text-emerald-200">{rankings.filter((r) => r.playerId).length}</span>
