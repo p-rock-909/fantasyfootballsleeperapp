@@ -89,10 +89,21 @@ export default function SetupForm() {
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-wide text-zinc-500">{season} leagues</div>
             {leagues.map((l) => (
-              <button key={l.league_id} className="flex w-full items-center justify-between rounded-md border border-zinc-800 px-3 py-2 text-left hover:border-emerald-600" onClick={() => chooseLeague(l)}>
-                <span>{l.name}</span>
-                <span className="text-xs text-zinc-500">{l.total_rosters} teams · {l.status}</span>
-              </button>
+              // A row of two buttons, not a button inside a button — the latter is invalid HTML.
+              <div key={l.league_id} className="flex w-full items-center gap-2 rounded-md border border-zinc-800 px-3 py-2 hover:border-emerald-600">
+                <button className="min-w-0 flex-1 text-left" onClick={() => chooseLeague(l)}>
+                  <span className="block truncate">{l.name}</span>
+                  <span className="text-xs text-zinc-500">{l.total_rosters} teams · {l.status}</span>
+                </button>
+                <button className="btn btn-ghost shrink-0" onClick={() => chooseLeague(l)}>Draft</button>
+                <button
+                  className="btn btn-ghost shrink-0"
+                  title="Compare this week's matchups and get a start/sit recommendation"
+                  onClick={() => { updateSettings({ leagueId: l.league_id }); router.push(`/league/${l.league_id}/matchups`); }}
+                >
+                  Matchups
+                </button>
+              </div>
             ))}
           </div>
         )}

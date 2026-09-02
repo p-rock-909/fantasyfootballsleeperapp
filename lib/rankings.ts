@@ -209,3 +209,10 @@ export function mergeRankings(players: Player[], rankings: RankingRow[] | null, 
   }
   return out;
 }
+
+/** The subset of a rankings row the recommendation routes accept. */
+export const serializeRankings = (rows: RankingRow[] | null) =>
+  rows?.filter((r) => r.playerId).map((r) => ({
+    playerId: r.playerId as string,
+    rank: r.rank, adp: r.adp, tier: r.tier, bye: r.bye, proj: r.proj, posRank: r.posRank,
+  })) ?? null;

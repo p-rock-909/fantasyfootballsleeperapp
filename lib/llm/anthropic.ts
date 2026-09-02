@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { RecommendationResponse } from "@/lib/schema";
 import { LlmError, type LlmProvider, type LlmRequest, type LlmResult } from "./types";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
@@ -14,14 +13,14 @@ export const anthropicProvider: LlmProvider = {
     return process.env.ANTHROPIC_API_KEY ? null : "ANTHROPIC_API_KEY is not set on the server.";
   },
 
-  async recommend({ system, user, effort }: LlmRequest): Promise<LlmResult> {
+  async recommend<T>({ system, user, effort, schema }: LlmRequest<T>): Promise<LlmResult<T>> {
     const client = new Anthropic(WORKSPACE_ID ? { defaultHeaders: { "anthropic-workspace-id": WORKSPACE_ID } } : {});
     try {
       const response = await client.beta.messages.parse({
         model: MODEL,
         max_tokens: 8000,
         thinking: { type: "adaptive" },
-        output_config: { effort, format: betaZodOutputFormat(RecommendationResponse) },
+        output_config: { effort, format: betaZodOutputFormat(schema) },
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],

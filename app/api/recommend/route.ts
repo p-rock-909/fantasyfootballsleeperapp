@@ -1,31 +1,22 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { RecommendRequest } from "@/lib/schema";
+import { RecommendRequest, RecommendationResponse } from "@/lib/schema";
 import { activeProvider, LlmError } from "@/lib/llm";
 import { leagueFormat, sleeperFetch, type Player, type SleeperDraft, type SleeperLeague, type SleeperPick } from "@/lib/sleeper";
-import { trimPlayers } from "@/lib/players";
 import { byeForTeam } from "@/lib/players";
-import { mergeRankings, type RankedPlayer, type RankingRow } from "@/lib/rankings";
+import { getPlayers } from "@/lib/playerPool";
+import { mergeRankings, type RankedPlayer } from "@/lib/rankings";
 import { turnInfo } from "@/lib/draftMath";
 import { analyzeRoster } from "@/lib/rosterNeeds";
 import { probGone, tierSummary } from "@/lib/availability";
 import { buildSystemPrompt, buildUserMessage, needsSummary } from "@/lib/prompt";
-import { defaultRankingRows } from "@/lib/defaultRankings";
+import { resolveRankingRows } from "@/lib/defaultRankings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a deep run can take a while on either provider; Vercel Pro allows up to 300s
 
 const AVAILABLE_LIMIT = 80;
-
-// Warm-lambda cache of the trimmed player pool (Sleeper asks for <=1 players call/day).
-let playerCache: { at: number; players: Player[] } | null = null;
-async function getPlayers(): Promise<Player[]> {
-  if (playerCache && Date.now() - playerCache.at < 6 * 3600 * 1000) return playerCache.players;
-  const raw = await sleeperFetch<Record<string, never>>("/players/nfl");
-  playerCache = { at: Date.now(), players: trimPlayers(raw) };
-  return playerCache.players;
-}
 
 async function getPreferences(): Promise<string> {
   try {
@@ -64,10 +55,7 @@ export async function POST(request: Request) {
 
   // 2. Deterministic draft math.
   const fmt = leagueFormat(draft, league);
-  // The browser sends what it has; with nothing imported, fall back to the bundled template.
-  const rankingRows: RankingRow[] | null = req.rankings?.length
-    ? req.rankings.map((r) => ({ name: "", pos: null, team: null, ...r }))
-    : await defaultRankingRows(players);
+  const rankingRows = await resolveRankingRows(players, req.rankings);
   const ranked = mergeRankings(players, rankingRows, byeForTeam);
   const byId = new Map(ranked.map((p) => [p.id, p]));
   const takenIds = new Set(picks.map((p) => p.player_id));
@@ -117,7 +105,7 @@ export async function POST(request: Request) {
 
   // 3. The evaluation provider (Gemini by default, Claude when LLM_PROVIDER=anthropic).
   try {
-    const result = await provider.recommend({ system, user, effort: req.effort });
+    const result = await provider.recommend({ system, user, effort: req.effort, schema: RecommendationResponse });
     const out = result.parsed;
     // Only trust ids that are actually on the board.
     const validIds = new Set(candidates.map((p) => p.id));

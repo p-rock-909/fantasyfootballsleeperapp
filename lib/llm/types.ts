@@ -1,12 +1,14 @@
-import type { RecommendationResponse } from "@/lib/schema";
+import type { z } from "zod";
 
 export type ProviderName = "gemini" | "anthropic";
 export type Effort = "low" | "medium" | "high";
 
-export interface LlmRequest {
+export interface LlmRequest<T> {
   system: string;
   user: string;
   effort: Effort;
+  /** The shape the answer must take. Whatever comes back is validated against it. */
+  schema: z.ZodType<T>;
 }
 
 /**
@@ -20,9 +22,9 @@ export interface LlmUsage {
   cachedInputTokens?: number;
 }
 
-export interface LlmResult {
-  /** Already validated against RecommendationResponse, whoever produced it. */
-  parsed: RecommendationResponse;
+export interface LlmResult<T> {
+  /** Already validated against the request's schema, whoever produced it. */
+  parsed: T;
   /** The model id the provider actually served, not the one we asked for. */
   model: string;
   usage: LlmUsage;
@@ -32,7 +34,7 @@ export interface LlmProvider {
   readonly name: ProviderName;
   /** Human-readable reason this provider can't run (missing key, etc.), or null when it's ready. */
   configError(): string | null;
-  recommend(req: LlmRequest): Promise<LlmResult>;
+  recommend<T>(req: LlmRequest<T>): Promise<LlmResult<T>>;
 }
 
 /** A provider failure already translated into what the route should return. */

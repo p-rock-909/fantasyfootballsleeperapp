@@ -1,17 +1,19 @@
 import { ApiError, GoogleGenAI, ThinkingLevel, type FinishReason } from "@google/genai";
 import { z } from "zod";
-import { RecommendationResponse } from "@/lib/schema";
 import { LlmError, type Effort, type LlmProvider, type LlmRequest, type LlmResult } from "./types";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-pro-latest";
 
-// Everything zod emits here (types, required, min/max, minItems/maxItems, descriptions)
-// is inside the dialect Gemini accepts — except the `$schema` key, which it rejects.
-const RESPONSE_JSON_SCHEMA = (() => {
-  const schema = z.toJSONSchema(RecommendationResponse) as Record<string, unknown>;
-  delete schema.$schema;
-  return schema;
-})();
+/**
+ * Everything zod emits (types, required, min/max, minItems/maxItems, descriptions) is
+ * inside the dialect Gemini accepts — except the `$schema` key, which it rejects.
+ * Cheap enough to do per call: microseconds against a request that takes a minute.
+ */
+export function geminiJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  const json = z.toJSONSchema(schema) as Record<string, unknown>;
+  delete json.$schema;
+  return json;
+}
 
 // Claude takes the effort level directly; Gemini's nearest equivalent is a thinking level.
 // This mapping assumes a Gemini 3+ model — older models want `thinkingBudget` instead.
@@ -34,7 +36,7 @@ export const geminiProvider: LlmProvider = {
     return process.env.GEMINI_API_KEY ? null : "GEMINI_API_KEY is not set on the server.";
   },
 
-  async recommend({ system, user, effort }: LlmRequest): Promise<LlmResult> {
+  async recommend<T>({ system, user, effort, schema }: LlmRequest<T>): Promise<LlmResult<T>> {
     const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     try {
       const response = await client.models.generateContent({
@@ -44,7 +46,7 @@ export const geminiProvider: LlmProvider = {
           systemInstruction: system,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           responseMimeType: "application/json",
-          responseJsonSchema: RESPONSE_JSON_SCHEMA,
+          responseJsonSchema: geminiJsonSchema(schema),
           thinkingConfig: { thinkingLevel: THINKING_LEVEL[effort] },
         },
       });
@@ -56,7 +58,7 @@ export const geminiProvider: LlmProvider = {
       const text = response.text;
       // MAX_TOKENS, an empty candidate, or JSON that misses the schema all land the user in the
       // same place: no usable answer, worth retrying at lower effort.
-      const parsed = finish === "MAX_TOKENS" || !text ? null : RecommendationResponse.safeParse(safeJson(text));
+      const parsed = finish === "MAX_TOKENS" || !text ? null : schema.safeParse(safeJson(text));
       if (!parsed?.success) {
         throw new LlmError("Gemini's answer was cut off or unparseable; try again (or lower effort).", 502, {
           finishReason: finish,
