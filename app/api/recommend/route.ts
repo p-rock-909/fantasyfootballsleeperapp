@@ -69,7 +69,7 @@ export async function POST(request: Request) {
     rosterBySlot.set(p.draft_slot, [...(rosterBySlot.get(p.draft_slot) ?? []), rp]);
   }
   const myRoster = req.mySlot ? rosterBySlot.get(req.mySlot) ?? [] : [];
-  const analysis = analyzeRoster(myRoster, fmt.slots, (p) => (p as RankedPlayer).bye ?? null);
+  const analysis = analyzeRoster(myRoster, fmt.slots, (p) => p.bye ?? null);
 
   const available = ranked.filter((p) => !takenIds.has(p.id));
   // Keep K/DEF out of the list until the final rounds so they don't crowd out real candidates.

@@ -58,6 +58,14 @@ test("slotCountsFromPositions skips IDP slots and buckets unknown tokens as benc
   assert.equal(counts.BN, 2); // MYSTERY + BN; the four IDP tokens are skipped entirely
 });
 
+// IR and taxi used to fall through to the bench bucket, which overstated both a draft's
+// "picks remaining" and an in-season roster's open spots — and the latter is what decides
+// whether a waiver add forces a drop.
+test("slotCountsFromPositions does not count IR or taxi as bench", () => {
+  const counts = slotCountsFromPositions(["QB", "BN", "BN", "IR", "IR", "TAXI"]);
+  assert.equal(counts.BN, 2, "IR and taxi must not inflate the bench count");
+});
+
 test("slotCounts prefers the league's roster_positions over the draft's slot_ settings", () => {
   const d = draft({ settings: { teams: 12, rounds: 15, pick_timer: 60, slots_qb: 2, slots_rb: 9 } });
   assert.equal(slotCounts(d, league()).QB, 1);

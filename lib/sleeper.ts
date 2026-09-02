@@ -162,12 +162,20 @@ export interface SlotCounts {
 
 const EMPTY_SLOTS = (): SlotCounts => ({ QB: 0, RB: 0, WR: 0, TE: 0, FLEX: 0, SUPER_FLEX: 0, REC_FLEX: 0, WRRB_FLEX: 0, K: 0, DEF: 0, BN: 0 });
 
+// Slots that hold players but are neither a starting slot nor a usable bench spot. They
+// are skipped rather than folded into BN: a player parked on IR does not occupy a bench
+// spot, and you cannot draft or add into one, so counting them as bench overstates both a
+// draft's "picks remaining" and an in-season roster's open spots — and the latter is what
+// decides whether a waiver add forces a drop.
+const RESERVE_SLOTS = new Set(["IR", "TAXI"]);
+const IDP_SLOTS = new Set(["IDP_FLEX", "DL", "LB", "DB"]);
+
 /** Count a league's `roster_positions` without needing a draft (the in-season path has no draft). */
 export function slotCountsFromPositions(positions: string[]): SlotCounts {
   const c = EMPTY_SLOTS();
   for (const p of positions) {
     if (p in c) c[p as keyof SlotCounts]++;
-    else if (p === "IDP_FLEX" || p === "DL" || p === "LB" || p === "DB") continue;
+    else if (IDP_SLOTS.has(p) || RESERVE_SLOTS.has(p)) continue;
     else c.BN++;
   }
   return c;

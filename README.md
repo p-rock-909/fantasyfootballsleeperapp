@@ -4,6 +4,8 @@ A draft board and in-season start/sit assistant for [Sleeper](https://sleeper.co
 
 - **Draft day:** which player to take next, using **your** preference document, your league's exact scoring/roster settings, the live board, and a rankings/ADP sheet.
 - **In season:** pick any week and any matchup, compare both rosters side by side, and get a start/sit recommendation governed by [`content/start-sit-rules.md`](content/start-sit-rules.md) and grounded in current injury, weather, and betting news pulled from a web search.
+- **Waivers:** pick any team in the league and rank the unrostered players worth claiming for it, governed by [`content/waiver-rules.md`](content/waiver-rules.md) — with the ruleset's 100-point score, a FAAB range checked against that team's real remaining budget, and the drop it would cost.
+- **Trades:** score a proposed trade for **both** sides, or generate offers a specific manager would plausibly accept, governed by [`content/trade-rules.md`](content/trade-rules.md). The before/after starting lineups are solved in code from your league's actual slots.
 
 Built with Next.js (App Router) and deploys to Vercel with no database.
 
@@ -22,6 +24,18 @@ Browser ── polls Sleeper every 5s ──▶ /api/sleeper/*  (read-only proxy
                                          practice, weather and betting context (cited)
                                       2. Gemini or Claude → start/sit lineup,
                                          governed by content/start-sit-rules.md
+
+        ── "Find pickups" ──────────▶ /api/waivers/recommend
+                                      1. Gemini + Google Search → snap share, routes,
+                                         target share, depth-chart moves (cited)
+                                      2. Gemini or Claude → ranked claims,
+                                         governed by content/waiver-rules.md
+
+        ── "Evaluate trade" ────────▶ /api/trades/evaluate
+                                      1. Gemini + Google Search → roles, injury
+                                         timelines, rest-of-season outlook (cited)
+                                      2. Gemini or Claude → per-team scorecard, or
+                                         proposals, governed by content/trade-rules.md
 ```
 
 All the counting is done in code, not by the model: whose turn it is, how many picks until yours, which slots pick in between and what they need, your unfilled starter slots, bye-week pile-ups, tier drop-offs, and a **P(gone before your next pick)** estimate from ADP. The model gets those facts plus your preferences and makes the judgment call. Output is validated against a schema, so the UI always shows a top pick, alternates, "won't survive to your next pick," "targets for the following pick," and warnings.
@@ -82,6 +96,41 @@ You get the recommended starter for every slot with its reasoning, the posture i
 
 Every evaluation is saved per league and week, failed runs included, so you can go back and see what was known before the week played out. Lineup problems the app catches in the model's answer (a player started twice, a slot left empty) are reported separately from the model's own alerts, so the record stays honest about which is which.
 
+## Waivers
+
+**Waivers** in the nav opens `/league/<leagueId>/waivers`. Pick a week and **any team in the league** — your own is preselected when you own one, but scouting another manager's needs is the point, so nothing stops you looking at theirs. That is a deliberate difference from the matchup view, which refuses to set a lineup for a roster you don't own.
+
+The left panel is all computed in code: unfilled starter slots, open roster spots, FAAB remaining (or waiver priority, in a league that doesn't bid), bye-week pile-ups, and the roster itself. Press **Find pickups** and you get the ruleset's ranked claims — add type, the 100-point score with its breakdown, a suggested FAAB range, a confidence label, the named risk, and the drop it would cost.
+
+**What the model is allowed to suggest is decided before it runs.** Free agents are derived (the player pool minus every roster in the league, IR and taxi included), then cut to a shortlist of ~60 by a deterministic rule: Sleeper's league-wide 24-hour add counts lead, then the rankings sheet, then Sleeper's own player order, with per-position caps widened for the positions this team actually needs. **What was considered** under the answer lists exactly that set, so "why wasn't X suggested" is always answerable. Anything the model returns that isn't on the list is dropped and reported.
+
+Two boundaries the panel states rather than hides:
+
+- The pool holds players on an NFL roster, so someone released in the last few days isn't in it at all.
+- **Unrostered is not the same as claimable.** A player dropped in your league a day or two ago is still on waivers, and telling those apart needs Sleeper's transactions endpoint, which this doesn't use yet.
+
+**An un-grounded waiver run is a weak run**, and the panel says so more bluntly than the matchup one does. The ruleset ranks on snap share, route participation, target share and depth-chart movement — Sleeper exposes none of it. Without the news lookup the model has stored injury designations, depth-chart order and add counts, and nothing else.
+
+FAAB advice is checked against reality: a bid above what the team has left is capped and reported, and in a league on rolling priority the bid fields are cleared rather than invented.
+
+## Trades
+
+**Trades** opens `/league/<leagueId>/trades`, with two modes.
+
+**Evaluate a trade** — pick two teams, tick the players moving each way, and get the ruleset's output: a verdict, a separate scorecard for *each* side, the asset-by-asset read, concrete ways to balance it, if/then contingencies, and a deliberately conservative fairness screen. A trade can score well for both teams at once, and it will say so.
+
+**Find trades** — pick your team and either a specific partner or *Any team*, and get offers built from the other manager's problems rather than yours: what you send, what you get, the pitch, and why they'd rationally accept. **Evaluate this** on any proposal loads it into the evaluate form so it can be scored by the stricter path.
+
+The comparison the ruleset is built on — *"the difference between the lineups each manager can start before and after"* — is arithmetic, so it happens in code. `bestLineup()` solves the best legal lineup for each side before and after the deal, using your league's real slots. It uses an augmenting-path assignment rather than filling dedicated slots first, because that shortcut is wrong in a league with both `REC_FLEX` (WR/TE) and `WRRB_FLEX` (RB/WR): with WR 10 / TE 9 / RB 8 the naive fill scores 18 where the optimum is 19. There's a unit test for exactly that case.
+
+**One honest limitation, stated in the prompt and in the UI: this app has no rest-of-season projections.** The rankings sheet is a *preseason draft* sheet. So the lineup **shape** is reliable and the ordering behind it is a weak prior; where the grounded lookup returns a current rest-of-season outlook, that outranks both. With no news, the panel says plainly that you're getting a structural read of both rosters rather than a valuation.
+
+A trade proposed after the league's deadline is flagged by the app, not left to the model to notice.
+
+## What these features don't do
+
+Sleeper's public API is read-only. Nothing here submits a waiver claim or sends a trade offer — you take the advice and act on it in Sleeper. Every run is user-triggered, and both features are logged per league so you can look back at what was suggested and whether it was grounded.
+
 ## Deploy to Vercel
 
 ```bash
@@ -109,7 +158,9 @@ Note: `/api/recommend` sets `maxDuration = 300`. On the Vercel Hobby plan functi
 
 Create a mock draft on Sleeper, paste its URL into the setup page, pick your slot, and draft a few rounds. That exercises everything: polling, the on-the-clock banner and countdown, auto-recommend, and rankings matching. A completed draft ID from a previous season also works for a static check.
 
-`npm test` runs the unit tests (Node's built-in runner via `tsx`, no dev server, no network): lineup slot eligibility, startability, matchup pairing, phase detection, response validation, the league-format derivation, and a check that every schema stays inside the JSON Schema subset Gemini accepts.
+`npm test` runs the unit tests (Node's built-in runner via `tsx`, no dev server, no network): lineup slot eligibility, startability, matchup pairing, phase detection, response validation, the league-format derivation, optimal lineup assignment, free-agent derivation and shortlisting, league state (FAAB, roster space, waiver rules), the shape of each retrieval query, and two mechanical schema checks — that every schema stays inside the JSON Schema subset Gemini accepts, and that every array in the newer ones is bounded so an answer can't run past the output budget mid-JSON.
+
+Note that `npm run lint` will not catch a bad `PageProps<"/some/route">` — those types are generated from the filesystem, so a mistyped route path only fails under `npm run build`.
 
 `npm run smoke` (with `npm run dev` running) is the complement — it exercises the draft-order math, roster-needs engine, and CSV matcher against live Sleeper data.
 
@@ -117,10 +168,12 @@ Create a mock draft on Sleeper, paste its URL into the setup page, pick your slo
 
 ```
 app/                 pages + route handlers (players, rankings, sleeper proxy, recommend,
-                     matchup/recommend, league/[leagueId]/matchups)
+                     matchup/recommend, waivers/recommend, trades/evaluate,
+                     league/[leagueId]/{matchups,waivers,trades})
 components/          SetupForm, DraftBoard, AvailablePlayers, Recommendations, MyRoster,
                      RankingsImport, SettingsDrawer, MatchupBoard, MatchupCompare,
-                     MatchupRecommendationPanel, RawJson
+                     MatchupRecommendationPanel, WaiverBoard, WaiverRecommendationPanel,
+                     TradeBoard, TradeEvaluationPanel, AppNav, Grounding, RawJson
 lib/sleeper.ts       Sleeper types, fetch helper, league/scoring-format derivation
 lib/draftMath.ts     snake/linear/reversal order, picks-until-my-turn, pick clock
 lib/rosterNeeds.ts   starters/flex/bench gaps, bye clashes
@@ -128,13 +181,21 @@ lib/rankings.ts      CSV parsing, name normalization, matching to Sleeper ids, m
 lib/defaultRankings.ts   reads content/rankings-template.csv as the fallback rankings
 lib/availability.ts  P(gone) model, tier summary
 lib/playerPool.ts    shared server-side player pool (6h warm cache) + its age
-lib/lineup.ts        starting slots, eligibility, startability, pairing, lineup validation
+lib/lineup.ts        starting slots, eligibility, startability, pairing, lineup validation,
+                     bestLineup() — the optimal legal lineup, for trade before/after
+lib/leagueState.ts   the whole league at once: every team's needs, FAAB, roster space
+lib/freeAgents.ts    who is unrostered, and the deterministic shortlist sent to the model
 lib/liveContext.ts   grounded Gemini news lookup — the only non-Sleeper data source
 lib/prompt.ts        draft system prompt (strategy + league + preferences) and board state
 lib/matchupPrompt.ts start/sit system prompt (ruleset + league) and matchup state
-lib/schema.ts        zod schemas for both requests and both structured outputs
+lib/waiverPrompt.ts  waiver system prompt (ruleset + league) and candidate state
+lib/tradePrompt.ts   trade system prompt (ruleset + league), both evaluate and propose
+lib/promptShared.ts  the league-format block every prompt needs
+lib/schema.ts        zod schemas for every request and every structured output
 lib/llm/             provider abstraction: gemini.ts, anthropic.ts, chosen by LLM_PROVIDER
 content/preferences.md      your draft philosophy — edit this (draft only)
 content/start-sit-rules.md  the weekly start/sit ruleset — edit this (in-season only)
-proxy.ts             optional APP_PASSWORD gate on both model-calling routes
+content/waiver-rules.md     the waiver-wire ruleset — edit this
+content/trade-rules.md      the trade-evaluation ruleset — edit this
+proxy.ts             optional APP_PASSWORD gate on every model-calling route
 ```

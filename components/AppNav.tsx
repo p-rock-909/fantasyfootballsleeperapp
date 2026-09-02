@@ -20,6 +20,11 @@ export default function AppNav({ draftId, leagueId }: { draftId?: string | null;
   const draft = draftId ?? settings?.draftId ?? null;
   const league = leagueId ?? settings?.leagueId ?? null;
 
+  // Match on the trailing segment, not on `/league`: three pages now live under it, and a
+  // prefix test would light up every one of them at once.
+  const leaguePage = (name: string) => pathname.startsWith("/league") && pathname.endsWith(`/${name}`);
+  const NO_LEAGUE = "Choose a league on Setup first";
+
   const items = [
     { key: "setup", label: "Setup", href: "/", active: pathname === "/", disabledReason: null },
     {
@@ -33,8 +38,22 @@ export default function AppNav({ draftId, leagueId }: { draftId?: string | null;
       key: "matchups",
       label: "Matchups",
       href: league ? `/league/${league}/matchups` : null,
-      active: pathname.startsWith("/league"),
-      disabledReason: "Choose a league on Setup first",
+      active: leaguePage("matchups"),
+      disabledReason: NO_LEAGUE,
+    },
+    {
+      key: "waivers",
+      label: "Waivers",
+      href: league ? `/league/${league}/waivers` : null,
+      active: leaguePage("waivers"),
+      disabledReason: NO_LEAGUE,
+    },
+    {
+      key: "trades",
+      label: "Trades",
+      href: league ? `/league/${league}/trades` : null,
+      active: leaguePage("trades"),
+      disabledReason: NO_LEAGUE,
     },
   ];
 

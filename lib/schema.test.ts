@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
 import { LiveContext } from "./liveContext";
-import { MatchupRecommendation, RecommendationResponse } from "./schema";
+import { MatchupRecommendation, RecommendationResponse, TradeEvaluation, TradeProposals, WaiverRecommendation } from "./schema";
 
 /**
  * The JSON Schema keywords Gemini's `responseJsonSchema` documents as supported,
@@ -43,6 +43,9 @@ const SCHEMAS: [string, z.ZodType][] = [
   ["RecommendationResponse", RecommendationResponse],
   ["MatchupRecommendation", MatchupRecommendation],
   ["LiveContext", LiveContext],
+  ["WaiverRecommendation", WaiverRecommendation],
+  ["TradeEvaluation", TradeEvaluation],
+  ["TradeProposals", TradeProposals],
 ];
 
 for (const [name, schema] of SCHEMAS) {
@@ -71,4 +74,47 @@ test("the keyword check actually catches z.record and z.tuple", () => {
   assert.ok(keywordsIn(z.toJSONSchema(withRecord)).has("propertyNames"));
   assert.ok([...keywordsIn(z.toJSONSchema(withTuple))].includes("prefixItems"));
   assert.equal((z.toJSONSchema(withTuple).properties?.pair as { items?: unknown })?.items, false);
+});
+
+/**
+ * Every array in a response schema needs an upper bound.
+ *
+ * `MAX_OUTPUT_TOKENS` in lib/llm/gemini.ts is shared with the thinking budget, so an
+ * unbounded list of richly-described objects is the likeliest way one of these calls ends
+ * as truncated JSON — which reaches the user as "the answer was cut off" after a long
+ * wait. Only the newer schemas are checked: the two original ones predate this rule and
+ * bounding them is a behaviour change, not a test fix.
+ */
+function unboundedArrays(node: unknown, path = "$", out: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    node.forEach((child, i) => unboundedArrays(child, `${path}[${i}]`, out));
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  const obj = node as Record<string, unknown>;
+  if (obj.type === "array" && obj.maxItems === undefined) out.push(path);
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "properties" && value && typeof value === "object") {
+      for (const [name, child] of Object.entries(value)) unboundedArrays(child, `${path}.${name}`, out);
+    } else {
+      unboundedArrays(value, `${path}.${key}`, out);
+    }
+  }
+  return out;
+}
+
+for (const [name, schema] of [
+  ["WaiverRecommendation", WaiverRecommendation],
+  ["TradeEvaluation", TradeEvaluation],
+  ["TradeProposals", TradeProposals],
+] as [string, z.ZodType][]) {
+  test(`${name} bounds every array it can return`, () => {
+    const unbounded = unboundedArrays(z.toJSONSchema(schema));
+    assert.deepEqual(unbounded, [], `${name} has unbounded array(s) at: ${unbounded.join(", ")}. Add .max(n).`);
+  });
+}
+
+test("the unbounded-array check actually catches a missing .max()", () => {
+  assert.deepEqual(unboundedArrays(z.toJSONSchema(z.object({ xs: z.array(z.string()) }))), ["$.xs"]);
+  assert.deepEqual(unboundedArrays(z.toJSONSchema(z.object({ xs: z.array(z.string()).max(3) }))), []);
 });

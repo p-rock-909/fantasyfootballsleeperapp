@@ -184,6 +184,111 @@ export function buildTeam({ roster, matchup, users, byId, lineup, week }: BuildT
   };
 }
 
+// ---- Best legal lineup ----
+
+export interface LineupAssignment<T> {
+  slot: StartingSlot;
+  player: T;
+}
+
+export interface BestLineup<T> {
+  filled: LineupAssignment<T>[];
+  /** Slots nothing eligible was left for — a real roster hole, not a rounding detail. */
+  empty: StartingSlot[];
+  /**
+   * One entry per slot, positionally aligned with the `slots` argument, null where nothing
+   * could fill it. `filled` skips the gaps, so two lineups over the same slots can only be
+   * compared slot-for-slot through this — indexing `filled` would shift every row after a
+   * hole and report the wrong player as changed.
+   */
+  bySlot: (T | null)[];
+}
+
+/**
+ * The highest-value legal starting lineup, and who is left over.
+ *
+ * `valueOf` is HIGHER IS BETTER. Note that `mergeRankings` produces `order` where *lower*
+ * is better, so callers pass a negated value — getting this backwards silently optimizes
+ * for the worst lineup rather than the best.
+ *
+ * Why not fill dedicated slots first and then the flexes: that is only correct when slot
+ * eligibility is nested. It isn't. `REC_FLEX` is {WR,TE} and `WRRB_FLEX` is {RB,WR} — they
+ * overlap without either containing the other, and with WR 10 / TE 9 / RB 8 the naive fill
+ * takes WR+RB (18) where WR+TE into the right flexes is 19.
+ *
+ * So: take players in descending value and admit each one if an augmenting path exists
+ * (Kuhn's). The sets of players that can be simultaneously matched to distinct slots form
+ * a transversal matroid, so this greedy yields a maximum-weight lineup. THAT GUARANTEE
+ * DEPENDS ON `valueOf` BEING A FUNCTION OF THE PLAYER ALONE — add a slot-specific bonus
+ * and the matroid property, and the optimality, quietly disappear.
+ */
+export function bestLineup<T extends { pos: Position }>(
+  players: T[],
+  slots: StartingSlot[],
+  valueOf: (player: T) => number,
+): BestLineup<T> {
+  const ranked = players
+    .map((player, i) => ({ player, value: valueOf(player), i }))
+    // `i` breaks ties so the result is stable rather than dependent on sort implementation.
+    .sort((a, b) => b.value - a.value || a.i - b.i);
+
+  // slotOwner[s] is the index into `ranked` currently assigned to slots[s], or -1.
+  const slotOwner: number[] = new Array(slots.length).fill(-1);
+
+  // Can `who` be placed, displacing already-admitted players along an augmenting path?
+  const place = (who: number, seen: boolean[]): boolean => {
+    for (let s = 0; s < slots.length; s++) {
+      if (seen[s] || !isEligible(slots[s], ranked[who].player.pos)) continue;
+      seen[s] = true;
+      if (slotOwner[s] === -1 || place(slotOwner[s], seen)) {
+        slotOwner[s] = who;
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (let who = 0; who < ranked.length; who++) place(who, new Array(slots.length).fill(false));
+
+  // The matching above maximizes total value, but several assignments tie: with two RB
+  // slots it is arbitrary which RB lands in which, and a QB can end up in SUPER_FLEX while
+  // a worse QB holds QB. Same points, but it reads as a mistake and it makes the output
+  // depend on iteration order. Settle it: while two filled slots can legally exchange
+  // players, put the better player in the earlier slot. Swapping a pair that is eligible
+  // both ways preserves both legality and the total, so this only ever picks between
+  // equally optimal answers.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let a = 0; a < slots.length; a++) {
+      for (let b = a + 1; b < slots.length; b++) {
+        const [x, y] = [slotOwner[a], slotOwner[b]];
+        if (x === -1 || y === -1 || ranked[y].value <= ranked[x].value) continue;
+        if (!isEligible(slots[a], ranked[y].player.pos) || !isEligible(slots[b], ranked[x].player.pos)) continue;
+        slotOwner[a] = y;
+        slotOwner[b] = x;
+        changed = true;
+      }
+    }
+  }
+
+  const filled: LineupAssignment<T>[] = [];
+  const empty: StartingSlot[] = [];
+  const bySlot: (T | null)[] = [];
+  slots.forEach((slot, s) => {
+    if (slotOwner[s] === -1) {
+      empty.push(slot);
+      bySlot.push(null);
+    } else {
+      const player = ranked[slotOwner[s]].player;
+      filled.push({ slot, player });
+      bySlot.push(player);
+    }
+  });
+
+  return { filled, empty, bySlot };
+}
+
 // ---- Pairing ----
 
 export interface MatchupPair {

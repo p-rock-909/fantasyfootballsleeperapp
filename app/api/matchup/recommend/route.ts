@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+import { loadRules, MissingRulesError } from "@/lib/rules";
 import { MatchupRecommendRequest, MatchupRecommendation, type MatchupMeta } from "@/lib/schema";
 import { activeProvider, LlmError } from "@/lib/llm";
 import {
@@ -32,17 +31,6 @@ import { buildMatchupSystemPrompt, buildMatchupUserMessage } from "@/lib/matchup
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a grounded news lookup plus a deep run; Vercel Pro allows up to 300s
 
-/** Thrown so a missing ruleset is distinguishable from a Sleeper failure in the Promise.all below. */
-class MissingRulesError extends Error {}
-
-async function getRules(): Promise<string> {
-  try {
-    return await readFile(path.join(process.cwd(), "content", "start-sit-rules.md"), "utf8");
-  } catch {
-    throw new MissingRulesError("content/start-sit-rules.md is missing from the deployment; the start/sit rules cannot be loaded.");
-  }
-}
-
 export async function POST(request: Request) {
   let provider;
   try {
@@ -68,7 +56,7 @@ export async function POST(request: Request) {
       sleeperFetch<SleeperMatchup[]>(`/league/${req.leagueId}/matchups/${req.week}`).catch(() => [] as SleeperMatchup[]),
       sleeperFetch<SleeperState>("/state/nfl"),
       getPlayerPool(),
-      getRules(),
+      loadRules("start-sit-rules.md", "the start/sit rules"),
     ]);
   } catch (e) {
     if (e instanceof MissingRulesError) return NextResponse.json({ error: e.message }, { status: 500 });
@@ -127,7 +115,7 @@ export async function POST(request: Request) {
   const news = await fetchLiveContext({
     leagueId: req.leagueId,
     week: req.week,
-    matchupKey: req.matchupKey,
+    scope: req.matchupKey,
     season: league.season,
     players: newsPlayers,
     refresh: req.refreshNews,
