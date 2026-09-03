@@ -15,8 +15,17 @@ import type { LineupPlayer } from "./lineup";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-pro-latest";
 const TTL_MS = 15 * 60 * 1000;
-const CACHE_MAX = 20;
+// Three features share this cache now (start/sit, waivers, trades), and a waiver run
+// keys on its candidate set, so distinct entries accumulate faster than they used to.
+const CACHE_MAX = 40;
 const MAX_OUTPUT_TOKENS = 16000;
+
+/**
+ * What a lookup is for. It shapes the query — a start/sit call needs kickoff weather and
+ * betting lines, a waiver call needs usage trend and depth-chart movement, and a trade is
+ * a rest-of-season question where this week's forecast is noise.
+ */
+export type LiveFocus = "matchup" | "waivers" | "trade";
 
 export const LivePlayerNews = z.object({
   player_id: z.string().describe("Echo back the exact id from the PLAYERS list"),
@@ -25,6 +34,10 @@ export const LivePlayerNews = z.object({
   role: z.string().nullable().describe("Depth chart, snap share, target share or role change since last week"),
   confirmed: z.boolean().describe("true only for an official injury report, transaction wire, or direct team/coach statement"),
   note: z.string().describe("One sentence a fantasy manager can act on"),
+  // Only a trade lookup asks for this. Nullable rather than optional because Gemini makes
+  // every property required; the system prompt tells it to leave this null otherwise, so a
+  // start/sit call doesn't spend output tokens on season-long narrative it must not use.
+  rosOutlook: z.string().nullable().describe("Rest-of-season outlook and current positional ranking. Null unless the query asks for it"),
   sources: z.array(z.string()).describe("URLs this came from"),
 });
 export type LivePlayerNews = z.infer<typeof LivePlayerNews>;
@@ -88,7 +101,8 @@ Rules:
 - Never present a rumor, repost, or last-week narrative as a current fact.
 - Prefer this week's reporting over anything older. If the newest thing you can find is stale, say so in the note.
 - If you cannot establish something, do not guess: put it in "unresolved" and name the decision it affects.
-- Report every player you are given. If you find nothing, return status "unknown" with an empty sources list rather than inventing a designation.`;
+- Report every player you are given. If you find nothing, return status "unknown" with an empty sources list rather than inventing a designation.
+- Leave rosOutlook null unless the query explicitly asks for a rest-of-season outlook, and return an empty games list when the query says not to report games.`;
 
 interface CacheEntry {
   at: number;
@@ -97,10 +111,31 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 
 /**
- * Keyed per matchup, not per week: a week holds several matchups with different players,
- * and a league-and-week key would serve one matchup's news for another.
+ * A stable fingerprint of the player set. FNV-1a over the sorted ids — not a security
+ * hash, just enough to tell two candidate sets apart.
  */
-const cacheKey = (leagueId: string, week: number, matchupKey: string) => `${leagueId}:${week}:${matchupKey}`;
+function playersFingerprint(players: LineupPlayer[]): string {
+  const ids = players.map((p) => p.id).sort().join(",");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < ids.length; i++) {
+    h ^= ids.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/**
+ * Keyed per scope, not per week: a week holds several matchups with different players, and
+ * a league-and-week key would serve one matchup's news for another.
+ *
+ * The player fingerprint is part of the key because a scope does NOT always determine the
+ * player list. `waivers:<rosterId>` covers a shortlist that shifts with the rankings sheet
+ * and the trending-adds snapshot, so without this a re-run inside the 15-minute TTL would
+ * be handed a brief for a different candidate set — and the "was this player researched"
+ * validation would then report problems that aren't real.
+ */
+const cacheKey = (leagueId: string, week: number, scope: string, players: LineupPlayer[]) =>
+  `${leagueId}:${week}:${scope}:${playersFingerprint(players)}`;
 
 function readCache(key: string): LiveContextResult | null {
   const hit = cache.get(key);
@@ -125,21 +160,64 @@ function writeCache(key: string, value: LiveContextResult) {
 export interface LiveContextRequest {
   leagueId: string;
   week: number;
-  matchupKey: string;
+  /** What this lookup is for: `<matchupKey>`, `waivers:<rosterId>`, `trade:<a>-<b>`. */
+  scope: string;
   season: string;
   players: LineupPlayer[];
+  focus?: LiveFocus;
   refresh?: boolean;
 }
 
-function buildQuery({ week, season, players }: LiveContextRequest): string {
+/**
+ * The search query. Each focus asks for what its ruleset actually reasons from, because
+ * retrieval is not free: a trade is a rest-of-season decision and this week's forecast is
+ * noise in it, while a start/sit call is the opposite.
+ *
+ * The `matchup` branch is deliberately unchanged from when it was the only one — it is
+ * what makes the start/sit feature grounded, and liveContext.test.ts pins it.
+ */
+export function buildQuery({ week, season, players, focus = "matchup" }: LiveContextRequest): string {
   const lines = players.map((p) => `${p.id} | ${p.name} | ${p.pos} | ${p.team}${p.inj ? ` | Sleeper lists: ${p.inj}` : ""}`);
   const teams = [...new Set(players.map((p) => p.team))].filter(Boolean).sort();
-  return [
+  const head = [
     `NFL ${season} season, week ${week}. Today is ${new Date().toISOString().slice(0, 10)}.`,
     "",
     "PLAYERS (player_id | name | position | team | Sleeper's stored designation, which may be days old):",
     ...lines,
     "",
+  ];
+
+  if (focus === "waivers") {
+    return [
+      ...head,
+      "These players are UNROSTERED in a fantasy league and are being considered as waiver-wire pickups.",
+      "The decision turns on OPPORTUNITY, not on last week's fantasy points. Lead with opportunity for every player:",
+      "- Offensive snap share, and whether it rose, held or fell across the last 2-4 games.",
+      "- Route participation and routes per dropback; target share and air-yard share for receivers and tight ends.",
+      "- Carries, total touches, work inside the 10 and inside the 5, third-down and two-minute role for running backs.",
+      "- Current depth-chart position and who is ahead of them.",
+      "Then report what created or threatens that role: an injury, trade, suspension, release, benching or coaching decision; whether a displaced teammate is expected back and when; and the player's own injury designation and practice participation this week.",
+      "",
+      `GAMES: for each of these teams report the week ${week} opponent, implied team total, spread and expected pace: ${teams.join(", ")}. Matchup is a tiebreaker here, so keep it brief.`,
+    ].join("\n");
+  }
+
+  if (focus === "trade") {
+    return [
+      ...head,
+      "These players are assets in a proposed fantasy-football trade. This is a REST-OF-SEASON decision, not a one-week one.",
+      "Do NOT report kickoff weather or a single game's betting line, and return an empty games list.",
+      "For every player report:",
+      "- Current role and usage (snap share, route participation, target or touch share), and whether it is rising, stable or declining.",
+      "- Depth-chart security and the competition for that role.",
+      "- Injury status with an expected return timeline, plus any re-injury or snap-count risk.",
+      "- The quarterback, offensive line and scoring environment around them, and their remaining schedule and bye week.",
+      "In rosOutlook, give the player's current rest-of-season outlook: where they are ranked at their position now, and whether that view is rising or falling. Say where the ranking came from.",
+    ].join("\n");
+  }
+
+  return [
+    ...head,
     `GAMES: report the week ${week} game for each of these teams: ${teams.join(", ")}.`,
     "",
     "For every player: current injury designation, practice participation this week, and any role, snap-share, depth-chart or usage change.",
@@ -156,7 +234,7 @@ export async function fetchLiveContext(req: LiveContextRequest): Promise<LiveCon
   if (!process.env.GEMINI_API_KEY) return { value: null, unavailable: "GEMINI_API_KEY is not set on the server." };
   if (!req.players.length) return { value: null, unavailable: "No startable players to look up." };
 
-  const key = cacheKey(req.leagueId, req.week, req.matchupKey);
+  const key = cacheKey(req.leagueId, req.week, req.scope, req.players);
   if (!req.refresh) {
     const hit = readCache(key);
     if (hit) return { value: hit, unavailable: null };
@@ -226,6 +304,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]).finally(() => clearTimeout(timer)) as Promise<T>;
 }
 
+/** The news for one player, by id — every prompt builder needs this lookup. */
+export type NewsIndex = Map<string, LivePlayerNews>;
+export const newsIndex = (live: LiveContextResult | null): NewsIndex =>
+  new Map((live?.players ?? []).map((n) => [n.player_id, n]));
+
 /** The news brief as the start/sit prompt sees it. */
 export function renderLiveContext(ctx: LiveContextResult, byId: Map<string, LineupPlayer>): string {
   const lines: string[] = [`NEWS BRIEF (retrieved ${ctx.retrievedAt} via web search; treat "confirmed: no" as unverified):`];
@@ -233,7 +316,9 @@ export function renderLiveContext(ctx: LiveContextResult, byId: Map<string, Line
     const p = byId.get(n.player_id);
     lines.push(
       `- ${p ? `${p.name} (${p.pos}/${p.team})` : n.player_id}: status ${n.status}, confirmed: ${n.confirmed ? "yes" : "no"}` +
-        `${n.practice ? `, practice: ${n.practice}` : ""}${n.role ? `, role: ${n.role}` : ""}. ${n.note}`,
+        `${n.practice ? `, practice: ${n.practice}` : ""}${n.role ? `, role: ${n.role}` : ""}. ${n.note}` +
+        // Only a trade lookup fills this; rendering it unconditionally keeps one code path.
+        `${n.rosOutlook ? ` Rest of season: ${n.rosOutlook}` : ""}`,
     );
   }
   for (const g of ctx.games) {

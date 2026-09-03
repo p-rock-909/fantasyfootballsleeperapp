@@ -25,6 +25,10 @@ export const api = {
   matchups: (leagueId: string, week: number) =>
     j<SleeperMatchup[]>(`/api/sleeper/league/${leagueId}/matchups/${week}`).catch(() => [] as SleeperMatchup[]),
   rankingsTemplate: () => j<{ csv: string | null; source: string }>("/api/rankings"),
+  // League-wide 24h add counts. Optional everywhere it is used — the waiver preview just
+  // shows a slightly different order without it, and the run itself fetches its own.
+  trendingAdds: () =>
+    j<{ player_id: string; count: number }[]>("/api/sleeper/players/nfl/trending/add?lookback_hours=24&limit=50").catch(() => []),
 };
 
 export async function getPlayers(force = false): Promise<Player[]> {

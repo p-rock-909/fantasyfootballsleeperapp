@@ -5,11 +5,12 @@
 // ("do not take a QB in the first three rounds"), it claims to be the highest authority,
 // and it would fight the ruleset for that title on a question it has nothing to say about.
 
-import type { LiveContextResult, LivePlayerNews } from "./liveContext";
-import { renderLiveContext } from "./liveContext";
+import type { LiveContextResult } from "./liveContext";
+import { newsIndex, renderLiveContext, type NewsIndex } from "./liveContext";
 import type { MatchupTeam, Startability, StartingSlot, TeamRow } from "./lineup";
 import { SLOT_ELIGIBILITY } from "./lineup";
 import type { ScoringFormat } from "./sleeper";
+import { leagueFormatBlock } from "./promptShared";
 
 const STATUS_NOTE: Record<Startability, string> = {
   ir: "ON IR — cannot be started",
@@ -36,20 +37,7 @@ export interface MatchupPromptInput {
 }
 
 export function buildMatchupSystemPrompt(rules: string, fmt: ScoringFormat, playoffWeekStart: number | null): string {
-  const s = fmt.slots;
-  const starters = [
-    `QB ${s.QB}`, `RB ${s.RB}`, `WR ${s.WR}`, `TE ${s.TE}`,
-    s.FLEX ? `FLEX ${s.FLEX}` : "", s.REC_FLEX ? `REC_FLEX ${s.REC_FLEX}` : "",
-    s.WRRB_FLEX ? `WRRB_FLEX ${s.WRRB_FLEX}` : "", s.SUPER_FLEX ? `SUPERFLEX ${s.SUPER_FLEX}` : "",
-    `K ${s.K}`, `DEF ${s.DEF}`, `BENCH ${s.BN}`,
-  ].filter(Boolean).join(", ");
-
-  const league = `LEAGUE FORMAT
-- Teams: ${fmt.teams}
-- Scoring: ${fmt.scoring} (${fmt.ppr} pts/reception${fmt.tePremium ? `, TE premium +${fmt.tePremium}/rec` : ""}), passing TD = ${fmt.passTdPts} pts
-- Superflex: ${fmt.superflex ? "YES (QBs are premium)" : "no"}
-- Starting lineup: ${starters}
-${playoffWeekStart ? `- Playoffs start week ${playoffWeekStart}` : "- Playoff schedule unknown"}`;
+  const league = leagueFormatBlock(fmt, playoffWeekStart);
 
   return `You are an expert fantasy football advisor setting ONE manager's starting lineup for a specific head-to-head matchup.
 
@@ -68,11 +56,6 @@ Hard constraints:
 - Where the news brief and the stored Sleeper designation disagree, the news brief is newer and wins.
 - Say what would change your mind: every close call needs the specific news condition that flips it.`;
 }
-
-type NewsIndex = Map<string, LivePlayerNews>;
-
-const newsIndex = (live: LiveContextResult | null): NewsIndex =>
-  new Map((live?.players ?? []).map((n) => [n.player_id, n]));
 
 const line = (r: TeamRow, index: NewsIndex): string => {
   const p = r.player;

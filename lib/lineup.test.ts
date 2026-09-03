@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  bestLineup,
   buildTeam,
   checkLineup,
   isEligible,
@@ -366,4 +367,109 @@ test("checkLineup drops extra rows for a slot the league does not have", () => {
   );
   assert.equal(kept.length, 1);
   assert.match(alerts[0], /no unfilled QB slot/);
+});
+
+// ---- bestLineup ----
+
+// Value is carried on the player so the tests read as "who is better", and so the
+// higher-is-better contract is visible at every call site.
+const v = (id: string, pos: LineupPlayer["pos"], value: number) => ({ ...p(id, pos), value });
+const byValue = (x: { value: number }) => x.value;
+// The score of a solved lineup. Computed here rather than returned by `bestLineup`,
+// which production code never needs it from.
+const scoreOf = (l: { filled: { player: { value: number } }[] }) => l.filled.reduce((s, f) => s + f.player.value, 0);
+
+test("bestLineup fills every dedicated slot with the best eligible player", () => {
+  const out = bestLineup(
+    [v("qb1", "QB", 10), v("qb2", "QB", 4), v("rb1", "RB", 9), v("rb2", "RB", 8)],
+    ["QB", "RB", "RB"],
+    byValue,
+  );
+  assert.deepEqual(out.filled.map((f) => `${f.slot}:${f.player.id}`), ["QB:qb1", "RB:rb1", "RB:rb2"]);
+  assert.deepEqual(out.empty, []);
+  assert.equal(scoreOf(out), 27);
+});
+
+test("bestLineup never starts the same player twice", () => {
+  const out = bestLineup([v("rb1", "RB", 9)], ["RB", "FLEX"], byValue);
+  assert.deepEqual(out.filled.map((f) => f.player.id), ["rb1"]);
+  assert.deepEqual(out.empty, ["FLEX"]);
+});
+
+test("bestLineup reports slots nothing eligible was left for", () => {
+  const out = bestLineup([v("wr1", "WR", 9)], ["QB", "WR", "K"], byValue);
+  assert.deepEqual(out.filled.map((f) => f.slot), ["WR"]);
+  assert.deepEqual(out.empty, ["QB", "K"]);
+});
+
+test("bestLineup puts a QB in a superflex only when that beats the alternative", () => {
+  // The QB is the best player available, so superflex takes him over the spare WR.
+  const out = bestLineup(
+    [v("qb1", "QB", 10), v("qb2", "QB", 9), v("wr1", "WR", 8), v("wr2", "WR", 3)],
+    ["QB", "WR", "SUPER_FLEX"],
+    byValue,
+  );
+  const bySlot = Object.fromEntries(out.filled.map((f) => [f.slot, f.player.id]));
+  assert.deepEqual(bySlot, { QB: "qb1", WR: "wr1", SUPER_FLEX: "qb2" });
+});
+
+// The case that justifies the augmenting-path assignment. REC_FLEX {WR,TE} and
+// WRRB_FLEX {RB,WR} overlap without either containing the other, so "walk the players
+// best-first and drop each into the first slot he fits" strands the TE: it puts the WR in
+// REC_FLEX, leaving WRRB_FLEX to the RB for 10+8=18. The optimum is 10+9=19.
+test("bestLineup beats first-fit when REC_FLEX and WRRB_FLEX overlap", () => {
+  const players = [v("wr1", "WR", 10), v("te1", "TE", 9), v("rb1", "RB", 8)];
+  const slots: StartingSlot[] = ["REC_FLEX", "WRRB_FLEX"];
+
+  // What a first-fit pass would have produced, computed here so the claim is not just prose.
+  let firstFitTotal = 0;
+  const taken = new Set<string>();
+  for (const player of [...players].sort((a, b) => b.value - a.value)) {
+    const slot = slots.find((s) => !taken.has(s) && isEligible(s, player.pos));
+    if (slot) { taken.add(slot); firstFitTotal += player.value; }
+  }
+  assert.equal(firstFitTotal, 18);
+
+  const out = bestLineup(players, slots, byValue);
+  assert.equal(scoreOf(out), 19);
+  assert.deepEqual(Object.fromEntries(out.filled.map((f) => [f.slot, f.player.id])), { REC_FLEX: "te1", WRRB_FLEX: "wr1" });
+  // ...and the running back is the one left out.
+  assert.ok(!out.filled.some((f) => f.player.id === "rb1"));
+});
+
+test("bestLineup is stable when two players are worth the same", () => {
+  const players = [v("wr1", "WR", 5), v("wr2", "WR", 5), v("wr3", "WR", 5)];
+  const first = bestLineup(players, ["WR"], byValue);
+  const again = bestLineup(players, ["WR"], byValue);
+  assert.deepEqual(first.filled.map((f) => f.player.id), again.filled.map((f) => f.player.id));
+  assert.deepEqual(first.filled.map((f) => f.player.id), ["wr1"]);
+});
+
+test("bestLineup handles an empty roster and an empty lineup", () => {
+  assert.deepEqual(bestLineup([], ["QB"], byValue), { filled: [], empty: ["QB"], bySlot: [null] });
+  const noSlots = bestLineup([v("qb1", "QB", 1)], [], byValue);
+  assert.deepEqual(noSlots.filled, []);
+  assert.deepEqual(noSlots.empty, []);
+  assert.deepEqual(noSlots.bySlot, []);
+});
+
+// `filled` skips unfillable slots, so two lineups over the same slots only line up
+// slot-for-slot through `bySlot`. Zipping the `filled` lists would shift every row after a
+// hole — which is exactly how a trade's before/after diff marks the wrong player changed.
+test("bestLineup returns a slot-aligned view with nulls for the gaps", () => {
+  const slots: StartingSlot[] = ["QB", "RB", "WR"];
+  const before = bestLineup([v("qb1", "QB", 9), v("wr1", "WR", 8)], slots, byValue);
+  const after = bestLineup([v("qb1", "QB", 9), v("rb1", "RB", 7), v("wr1", "WR", 8)], slots, byValue);
+
+  assert.deepEqual(before.bySlot.map((p) => p?.id ?? null), ["qb1", null, "wr1"]);
+  assert.deepEqual(after.bySlot.map((p) => p?.id ?? null), ["qb1", "rb1", "wr1"]);
+
+  // The WR is unchanged; only the RB slot was filled. Comparing `filled` by index would
+  // have claimed the WR changed, because `before.filled` is only two entries long.
+  const diff = slots.map((_, i) => (before.bySlot[i]?.id ?? null) !== (after.bySlot[i]?.id ?? null));
+  assert.deepEqual(diff, [false, true, false]);
+  assert.notDeepEqual(
+    before.filled.map((f) => f.player.id),
+    after.filled.map((f) => f.player.id).slice(0, before.filled.length),
+  );
 });

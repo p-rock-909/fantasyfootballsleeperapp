@@ -10,15 +10,21 @@ export interface RosterAnalysis {
   benchOpen: number;
   totalOpen: number;
   byeClashes: { bye: number; players: string[] }[]; // 3+ likely starters sharing a bye
-  summary: string; // one-line human summary for prompts/UI
+  /** Unfilled dedicated starter slots as "RBx1, WRx2", or "none". */
+  starterGapsLine: string;
+  summary: string; // one-line human summary for the draft board and its prompt
+  /** The same line for in-season use, where "picks remaining" would be meaningless. */
+  inSeasonSummary: string;
 }
 
 // Which positions fill which slot is one league rule with one owner: SLOT_ELIGIBILITY.
 
-export function analyzeRoster(
-  roster: Player[],
+// Generic over the player type so a caller holding `RankedPlayer`s — which already carry a
+// resolved `bye` — can supply a `byeOf` that reads it, instead of casting back down.
+export function analyzeRoster<T extends Player>(
+  roster: T[],
   slots: SlotCounts,
-  byeOf: (p: Player) => number | null,
+  byeOf: (p: T) => number | null,
 ): RosterAnalysis {
   const counts: Record<Position, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
   for (const p of roster) counts[p.pos]++;
@@ -59,12 +65,18 @@ export function analyzeRoster(
   const byeClashes = [...byBye.entries()].filter(([, ps]) => ps.length >= 3).map(([bye, players]) => ({ bye, players }));
 
   const gaps = (Object.entries(starterGaps) as [Position, number][]).filter(([, n]) => n > 0).map(([p, n]) => `${p}x${n}`);
-  const summary =
+  const starterGapsLine = gaps.length ? gaps.join(", ") : "none";
+  const shape =
     `Roster: ${(Object.entries(counts) as [Position, number][]).map(([p, n]) => `${p}${n}`).join(" ")} | ` +
-    `unfilled starters: ${gaps.length ? gaps.join(", ") : "none"}` +
+    `unfilled starters: ${starterGapsLine}` +
     (flexOpen ? `, FLEX x${flexOpen}` : "") +
-    (superflexOpen ? `, SUPERFLEX x${superflexOpen}` : "") +
-    ` | bench open: ${benchOpen} | picks remaining: ${totalOpen}`;
+    (superflexOpen ? `, SUPERFLEX x${superflexOpen}` : "");
 
-  return { counts, starters, starterGaps, flexOpen, superflexOpen, benchOpen, totalOpen, byeClashes, summary };
+  // Two renderings of the same numbers. "Picks remaining" is draft language and is
+  // nonsense in a week-9 waiver prompt; "roster spots open" is the same count read the
+  // way an in-season add/drop decision needs it.
+  const summary = `${shape} | bench open: ${benchOpen} | picks remaining: ${totalOpen}`;
+  const inSeasonSummary = `${shape} | bench open: ${benchOpen} | roster spots open: ${totalOpen}`;
+
+  return { counts, starters, starterGaps, flexOpen, superflexOpen, benchOpen, totalOpen, byeClashes, starterGapsLine, summary, inSeasonSummary };
 }

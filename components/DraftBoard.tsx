@@ -99,7 +99,7 @@ export default function DraftBoard({ draftId }: { draftId: string }) {
     () => (mySlot ? picks.filter((p) => p.draft_slot === mySlot).map((p) => byId.get(p.player_id)).filter((p): p is RankedPlayer => !!p) : []),
     [picks, mySlot, byId],
   );
-  const analysis = useMemo(() => (fmt ? analyzeRoster(myRoster, fmt.slots, (p) => (p as RankedPlayer).bye ?? null) : null), [fmt, myRoster]);
+  const analysis = useMemo(() => (fmt ? analyzeRoster(myRoster, fmt.slots, (p) => p.bye ?? null) : null), [fmt, myRoster]);
 
   const recommend = useCallback(async (q?: string) => {
     if (!settings || !turn) return;

@@ -4,7 +4,17 @@
 import type { Player } from "./sleeper";
 import type { RankingRow } from "./rankings";
 import type { LlmUsage } from "./llm/types";
-import type { MatchupMeta, MatchupRecommendation, RecommendationResponse } from "./schema";
+import type {
+  MatchupMeta,
+  MatchupRecommendation,
+  RecommendationResponse,
+  TradeEvaluation,
+  TradeMeta,
+  TradeProposals,
+  WaiverMeta,
+  ValidationResult,
+  WaiverRecommendation,
+} from "./schema";
 import type { LiveContextResult } from "./liveContext";
 
 export interface Settings {
@@ -27,7 +37,10 @@ export const DEFAULT_SETTINGS: Settings = {
 const KEYS = { settings: "sda:settings", players: "sda:players", rankings: "sda:rankings", rankingsCsv: "sda:rankingsCsv" };
 const REC_LOG_PREFIX = "sda:recs:";
 const MATCHUP_LOG_PREFIX = "sda:matchup:";
-const LOG_PREFIXES = [REC_LOG_PREFIX, MATCHUP_LOG_PREFIX];
+const WAIVER_LOG_PREFIX = "sda:waiver:";
+const TRADE_LOG_PREFIX = "sda:trade:";
+// Every log prefix belongs here, or "Reset everything" leaves entries behind.
+const LOG_PREFIXES = [REC_LOG_PREFIX, MATCHUP_LOG_PREFIX, WAIVER_LOG_PREFIX, TRADE_LOG_PREFIX];
 
 function read<T>(key: string): T | null {
   try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : null; } catch { return null; }
@@ -183,7 +196,7 @@ export interface MatchupLogEntry {
   data: MatchupRecommendation | null;
   liveContext: LiveContextResult | null;
   /** App-generated lineup problems. Kept apart from the model's own `alerts`. */
-  validation: { ok: boolean; issues: string[] } | null;
+  validation: ValidationResult | null;
   error: string | null;
   meta: MatchupMeta | null;
 }
@@ -199,3 +212,62 @@ export const appendMatchupLog = (leagueId: string, week: number, entry: MatchupL
   matchupLog.append(matchupLogId(leagueId, week), entry);
 export const clearMatchupLog = (leagueId: string, week: number) => matchupLog.clear(matchupLogId(leagueId, week));
 export const useMatchupLog = (leagueId: string, week: number): MatchupLogEntry[] => matchupLog.use(matchupLogId(leagueId, week));
+
+// ---- Waiver and trade logs ----
+//
+// Neither entry carries its news brief or candidate list. A matchup entry already holds a
+// whole brief and that is why its cap is 20; a waiver brief covers up to 30 players, and
+// `write()` above swallows QuotaExceededError silently — so an oversized entry wouldn't
+// fail loudly, history would just stop saving. What is kept is enough to answer "what did
+// it say, and was it grounded": `meta` carries the grounding state and the timestamp.
+
+export interface WaiverLogEntry {
+  id: string;
+  at: number;
+  week: number;
+  rosterId: number;
+  teamName: string;
+  effort: Settings["effort"];
+  question: string | null;
+  data: WaiverRecommendation | null;
+  validation: ValidationResult | null;
+  error: string | null;
+  meta: WaiverMeta | null;
+}
+
+export interface TradeLogEntry {
+  id: string;
+  at: number;
+  week: number;
+  mode: "evaluate" | "propose";
+  teamAName: string;
+  teamBName: string | null;
+  effort: Settings["effort"];
+  question: string | null;
+  evaluation: TradeEvaluation | null;
+  proposals: TradeProposals | null;
+  validation: ValidationResult | null;
+  error: string | null;
+  meta: TradeMeta | null;
+}
+
+const WAIVER_LOG_MAX = 10;
+const TRADE_LOG_MAX = 10;
+
+const waiverLog = createLogStore<WaiverLogEntry>(WAIVER_LOG_PREFIX, WAIVER_LOG_MAX);
+const waiverLogId = (leagueId: string, week: number, rosterId: number) => `${leagueId}:${week}:${rosterId}`;
+
+export const appendWaiverLog = (leagueId: string, week: number, rosterId: number, entry: WaiverLogEntry) =>
+  waiverLog.append(waiverLogId(leagueId, week, rosterId), entry);
+export const clearWaiverLog = (leagueId: string, week: number, rosterId: number) =>
+  waiverLog.clear(waiverLogId(leagueId, week, rosterId));
+export const useWaiverLog = (leagueId: string, week: number, rosterId: number): WaiverLogEntry[] =>
+  waiverLog.use(waiverLogId(leagueId, week, rosterId));
+
+// Keyed by league alone: a trade is not a week's worth of work, and the useful history is
+// "what have I looked at in this league", not "in week 9".
+const tradeLog = createLogStore<TradeLogEntry>(TRADE_LOG_PREFIX, TRADE_LOG_MAX);
+
+export const appendTradeLog = (leagueId: string, entry: TradeLogEntry) => tradeLog.append(leagueId, entry);
+export const clearTradeLog = (leagueId: string) => tradeLog.clear(leagueId);
+export const useTradeLog = (leagueId: string): TradeLogEntry[] => tradeLog.use(leagueId);

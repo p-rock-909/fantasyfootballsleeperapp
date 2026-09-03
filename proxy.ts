@@ -12,4 +12,4 @@ export function proxy(request: NextRequest) {
   return NextResponse.json({ error: "Password required. Set it in Settings (gear icon)." }, { status: 401 });
 }
 
-export const config = { matcher: ["/api/recommend", "/api/matchup/recommend"] };
+export const config = { matcher: ["/api/recommend", "/api/matchup/recommend", "/api/waivers/recommend", "/api/trades/evaluate"] };
