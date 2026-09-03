@@ -27,6 +27,8 @@ export interface WaiverRecState {
   shortlist: ShortlistRow[] | null;
   validation: ValidationResult | null;
   error: string | null;
+  /** Whatever the route attached to a failure — for a Gemini 400, the schema it sent. */
+  errorDetail: unknown;
   meta: WaiverMeta | null;
   id: string | null;
 }
@@ -115,7 +117,14 @@ export default function WaiverRecommendationPanel({
           {rec.stage === "news" ? "Searching for snap shares, depth-chart moves and injury news…" : "Ranking the waiver wire against the rules…"}
         </div>
       )}
-      {rec.error && <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">{rec.error}</div>}
+      {rec.error && (
+        <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">
+          {rec.error}
+          {/* A Gemini 400 names no field, so the route attaches what it sent. Showing it
+              here is the difference between diagnosing this and guessing at it. */}
+          {rec.errorDetail != null && <RawJson value={rec.errorDetail} />}
+        </div>
+      )}
       {!rec.loading && !d && !rec.error && (
         <p className="text-sm text-zinc-500">
           Pick a week and a team, then press <b>Find pickups</b> to rank the unrostered players {teamName ? `available to ${teamName}` : "in this league"}.
@@ -223,7 +232,7 @@ function Candidate({ c, faabLeague }: { c: WaiverRecommendation["candidates"][nu
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="pill bg-zinc-800 text-zinc-200">{c.decision}</span>
-        {faabLeague && c.faabPctLow != null && c.faabPctHigh != null ? (
+        {faabLeague && c.faabPctHigh > 0 ? (
           <span className="text-zinc-400">Bid <b className="text-zinc-100">{c.faabPctLow}–{c.faabPctHigh}%</b> of budget</span>
         ) : (
           <span className="text-zinc-400">{c.priorityAdvice}</span>
@@ -274,12 +283,12 @@ function HistoryEntry({ entry }: { entry: WaiverLogEntry }) {
               {entry.data.candidates.map((c) => (
                 <li key={c.player_id}>
                   <span className="text-zinc-500">{c.rank}.</span> <b>{c.name}</b>{" "}
-                  <span className="text-zinc-500">{c.addType}{c.faabPctHigh != null ? ` · up to ${c.faabPctHigh}%` : ""}</span>
+                  <span className="text-zinc-500">{c.addType}{c.faabPctHigh > 0 ? ` · up to ${c.faabPctHigh}%` : ""}</span>
                 </li>
               ))}
             </ol>
           )}
-          <RawJson value={{ recommendation: entry.data, validation: entry.validation, error: entry.error, meta: entry.meta }} />
+          <RawJson value={{ recommendation: entry.data, validation: entry.validation, error: entry.error, errorDetail: entry.errorDetail, meta: entry.meta }} />
         </div>
       )}
     </li>

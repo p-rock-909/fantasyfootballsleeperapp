@@ -28,6 +28,8 @@ export interface TradeRecState {
   liveContext: LiveContextResult | null;
   validation: ValidationResult | null;
   error: string | null;
+  /** Whatever the route attached to a failure — for a Gemini 400, the schema it sent. */
+  errorDetail: unknown;
   meta: TradeMeta | null;
   id: string | null;
 }
@@ -113,7 +115,12 @@ export default function TradeEvaluationPanel({
           {rec.stage === "news" ? "Searching for roles, injury timelines and rest-of-season outlook…" : "Weighing both rosters against the rules…"}
         </div>
       )}
-      {rec.error && <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">{rec.error}</div>}
+      {rec.error && (
+        <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">
+          {rec.error}
+          {rec.errorDetail != null && <RawJson value={rec.errorDetail} />}
+        </div>
+      )}
       {!rec.loading && !ev && !pr && !rec.error && (
         <p className="text-sm text-zinc-500">
           {mode === "evaluate"
@@ -360,7 +367,7 @@ function HistoryEntry({ entry }: { entry: TradeLogEntry }) {
               ))}
             </ul>
           )}
-          <RawJson value={{ evaluation: entry.evaluation, proposals: entry.proposals, validation: entry.validation, error: entry.error, meta: entry.meta }} />
+          <RawJson value={{ evaluation: entry.evaluation, proposals: entry.proposals, validation: entry.validation, error: entry.error, errorDetail: entry.errorDetail, meta: entry.meta }} />
         </div>
       )}
     </li>

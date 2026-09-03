@@ -8,8 +8,8 @@ const candidate = (over: Partial<WaiverCandidate> = {}): WaiverCandidate => ({
   addType: "starter", score: 70, scoreBreakdown: [], profile: "high floor",
   confidence: "probable", role: "", news: "", matchup: "", formatFit: "",
   outlook: "", whyNow: "", mainRisk: "",
-  faabPctLow: null, faabPctHigh: null, priorityAdvice: "",
-  dropPlayerId: null, dropName: null, dropWhy: null, decision: "add", ...over,
+  faabPctLow: 0, faabPctHigh: 0, priorityAdvice: "",
+  dropPlayerId: "", dropName: "", dropWhy: "", decision: "add", ...over,
 });
 
 const ctx = (over: Partial<Parameters<typeof checkWaiverCandidates>[1]> = {}) => ({
@@ -42,7 +42,7 @@ test("a drop that is not on the roster is cleared, and the claim survives", () =
   assert.equal(kept.length, 1, "the claim itself is still useful");
   assert.deepEqual(
     [kept[0].dropPlayerId, kept[0].dropName, kept[0].dropWhy],
-    [null, null, null],
+    ["", "", ""],
     "all three drop fields clear together",
   );
   assert.match(alerts[0], /Not Mine is not on this roster/);
@@ -53,7 +53,7 @@ test("a drop naming the player being added is cleared", () => {
     [candidate({ dropPlayerId: "fa1", dropName: "Free Agent" })],
     ctx({ rosterIds: new Set(["fa1"]) }),
   );
-  assert.equal(kept[0].dropPlayerId, null);
+  assert.equal(kept[0].dropPlayerId, "");
   assert.match(alerts[0], /named the player being added/);
 });
 
@@ -93,7 +93,7 @@ test("a bid in a league that does not use FAAB is cleared as a category error", 
     [candidate({ faabPctLow: 5, faabPctHigh: 12 })],
     ctx({ faab: false, faabRemaining: null }),
   );
-  assert.deepEqual([kept[0].faabPctLow, kept[0].faabPctHigh], [null, null]);
+  assert.deepEqual([kept[0].faabPctLow, kept[0].faabPctHigh], [0, 0]);
   assert.match(alerts[0], /waiver priority, not a budget/);
 });
 

@@ -30,6 +30,19 @@ import type { TradeMode } from "@/lib/schema";
 
 const WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
 
+/**
+ * A failed run, carrying whatever the route put in `detail`.
+ *
+ * A Gemini 400 names no field, so the route attaches the schema it sent — useless if the
+ * board throws a bare Error and drops it, which is what happened the first time this
+ * failed in production.
+ */
+class RunFailed extends Error {
+  constructor(message: string, readonly detail: unknown) {
+    super(message);
+  }
+}
+
 interface LeagueData {
   league: SleeperLeague;
   users: SleeperUser[];
@@ -40,7 +53,7 @@ interface LeagueData {
 
 const IDLE: TradeRecState = {
   loading: false, stage: null, evaluation: null, proposals: null, lineups: null,
-  liveContext: null, validation: null, error: null, meta: null, id: null,
+  liveContext: null, validation: null, error: null, errorDetail: null, meta: null, id: null,
 };
 
 export default function TradeBoard({ leagueId }: { leagueId: string }) {
@@ -151,18 +164,18 @@ export default function TradeBoard({ leagueId }: { leagueId: string }) {
         }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      if (!res.ok) throw new RunFailed(body.error ?? `HTTP ${res.status}`, body.detail ?? null);
       const evaluation = mode === "evaluate" ? body.recommendation : null;
       const proposals = mode === "propose" ? body.recommendation : null;
       appendTradeLog(leagueId, { ...base, evaluation, proposals, validation: body.validation, error: null, meta: body.meta });
       setRec({
         loading: false, stage: null, evaluation, proposals, lineups: body.lineups ?? null,
-        liveContext: body.liveContext, validation: body.validation, error: null, meta: body.meta, id,
+        liveContext: body.liveContext, validation: body.validation, error: null, errorDetail: null, meta: body.meta, id,
       });
     } catch (e) {
       const message = (e as Error).message;
-      appendTradeLog(leagueId, { ...base, evaluation: null, proposals: null, validation: null, error: message, meta: null });
-      setRec({ ...IDLE, error: message, id });
+      appendTradeLog(leagueId, { ...base, evaluation: null, proposals: null, validation: null, error: message, errorDetail: e instanceof RunFailed ? e.detail : null, meta: null });
+      setRec({ ...IDLE, error: message, errorDetail: e instanceof RunFailed ? e.detail : null, id });
     } finally {
       clearTimeout(toThink);
     }

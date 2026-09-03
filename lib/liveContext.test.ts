@@ -75,8 +75,8 @@ test("the trade query asks for rest-of-season outlook and suppresses weather and
 // ---- rendering ----
 
 const news = (over: Record<string, unknown> = {}) => ({
-  player_id: "p1", status: "questionable" as const, practice: "LP Wed", role: null,
-  confirmed: true, note: "Tweaked an ankle.", rosOutlook: null, sources: [], ...over,
+  player_id: "p1", status: "questionable" as const, practice: "LP Wed", role: "",
+  confirmed: true, note: "Tweaked an ankle.", rosOutlook: "", sources: [], ...over,
 });
 
 const ctx = (over: Partial<LiveContextResult> = {}): LiveContextResult => ({

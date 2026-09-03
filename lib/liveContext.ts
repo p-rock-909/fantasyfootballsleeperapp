@@ -27,17 +27,21 @@ const MAX_OUTPUT_TOKENS = 16000;
  */
 export type LiveFocus = "matchup" | "waivers" | "trade";
 
+// NOTHING HERE IS NULLABLE, for the reason set out at the top of lib/schema.ts: zod
+// encodes `.nullable()` as a `type` array or an `anyOf` with a null branch, and Gemini's
+// schema model — one `type` plus a separate nullable flag — takes neither. "Not reported"
+// is an empty string, and an unknown number is 0. Every reader below already treats those
+// as absent, because they were written against `null` and both are falsy.
 export const LivePlayerNews = z.object({
   player_id: z.string().describe("Echo back the exact id from the PLAYERS list"),
   status: z.enum(["active", "questionable", "doubtful", "out", "ir", "suspended", "unknown"]),
-  practice: z.string().nullable().describe("Practice participation across this week, if reported"),
-  role: z.string().nullable().describe("Depth chart, snap share, target share or role change since last week"),
+  practice: z.string().describe("Practice participation across this week. Empty string if not reported"),
+  role: z.string().describe("Depth chart, snap share, target share or role change since last week. Empty string if nothing changed"),
   confirmed: z.boolean().describe("true only for an official injury report, transaction wire, or direct team/coach statement"),
   note: z.string().describe("One sentence a fantasy manager can act on"),
-  // Only a trade lookup asks for this. Nullable rather than optional because Gemini makes
-  // every property required; the system prompt tells it to leave this null otherwise, so a
-  // start/sit call doesn't spend output tokens on season-long narrative it must not use.
-  rosOutlook: z.string().nullable().describe("Rest-of-season outlook and current positional ranking. Null unless the query asks for it"),
+  // Only a trade lookup asks for this; the system prompt says to leave it empty otherwise,
+  // so a start/sit call doesn't spend output tokens on season-long narrative it must not use.
+  rosOutlook: z.string().describe("Rest-of-season outlook and current positional ranking. Empty string unless the query asks for it"),
   sources: z.array(z.string()).describe("URLs this came from"),
 });
 export type LivePlayerNews = z.infer<typeof LivePlayerNews>;
@@ -45,11 +49,11 @@ export type LivePlayerNews = z.infer<typeof LivePlayerNews>;
 export const LiveGameContext = z.object({
   home: z.string().describe("Home team abbreviation"),
   away: z.string().describe("Away team abbreviation"),
-  kickoff: z.string().nullable().describe("ISO 8601 kickoff time, so late-window pivots can be reasoned about"),
+  kickoff: z.string().describe("ISO 8601 kickoff time, so late-window pivots can be reasoned about. Empty string if unknown"),
   roof: z.enum(["dome", "retractable", "outdoor", "unknown"]),
-  weather: z.string().nullable().describe("Conditions at kickoff: sustained wind, precipitation, temperature"),
-  spread: z.string().nullable(),
-  total: z.number().nullable(),
+  weather: z.string().describe("Conditions at kickoff: sustained wind, precipitation, temperature. Empty string if unknown"),
+  spread: z.string().describe("Empty string if unknown"),
+  total: z.number().describe("Game total. 0 if unknown"),
   // An array of pairs, not a map: z.record() emits `propertyNames`, which Gemini rejects.
   impliedTotals: z.array(z.object({ team: z.string(), total: z.number() })),
   sources: z.array(z.string()),
@@ -102,7 +106,8 @@ Rules:
 - Prefer this week's reporting over anything older. If the newest thing you can find is stale, say so in the note.
 - If you cannot establish something, do not guess: put it in "unresolved" and name the decision it affects.
 - Report every player you are given. If you find nothing, return status "unknown" with an empty sources list rather than inventing a designation.
-- Leave rosOutlook null unless the query explicitly asks for a rest-of-season outlook, and return an empty games list when the query says not to report games.`;
+- Leave rosOutlook as an empty string unless the query explicitly asks for a rest-of-season outlook, and return an empty games list when the query says not to report games.
+- Use an empty string for any text you cannot establish, and 0 for an unknown number. Never write the word "null".`;
 
 interface CacheEntry {
   at: number;
@@ -325,7 +330,7 @@ export function renderLiveContext(ctx: LiveContextResult, byId: Map<string, Line
     const implied = g.impliedTotals.map((t) => `${t.team} ${t.total}`).join(", ");
     lines.push(
       `- ${g.away} @ ${g.home}: ${g.roof}${g.kickoff ? `, kickoff ${g.kickoff}` : ""}${g.weather ? `, ${g.weather}` : ""}` +
-        `${g.spread ? `, spread ${g.spread}` : ""}${g.total != null ? `, total ${g.total}` : ""}${implied ? `, implied ${implied}` : ""}.`,
+        `${g.spread ? `, spread ${g.spread}` : ""}${g.total ? `, total ${g.total}` : ""}${implied ? `, implied ${implied}` : ""}.`,
     );
   }
   if (ctx.unresolved.length) lines.push(`UNRESOLVED: ${ctx.unresolved.join(" | ")}`);

@@ -232,6 +232,8 @@ export interface WaiverLogEntry {
   data: WaiverRecommendation | null;
   validation: ValidationResult | null;
   error: string | null;
+  /** What the route attached to a failure. The Raw view of a past run shows it. */
+  errorDetail?: unknown;
   meta: WaiverMeta | null;
 }
 
@@ -248,6 +250,8 @@ export interface TradeLogEntry {
   proposals: TradeProposals | null;
   validation: ValidationResult | null;
   error: string | null;
+  /** What the route attached to a failure. The Raw view of a past run shows it. */
+  errorDetail?: unknown;
   meta: TradeMeta | null;
 }
 
