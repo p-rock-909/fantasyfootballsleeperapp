@@ -33,6 +33,11 @@ export interface WaiverCheckContext {
   faab: boolean;
   /** What this team has left to bid, when it bids. */
   faabRemaining: number | null;
+  /**
+   * Player name by id. The schema no longer asks the model to echo names back — the app
+   * already has them — so the alerts resolve their own.
+   */
+  nameOf: (playerId: string) => string;
 }
 
 /**
@@ -51,43 +56,42 @@ export function checkWaiverCandidates(
 
   for (const raw of candidates) {
     if (!ctx.offeredIds.has(raw.player_id)) {
-      alerts.push(`Dropped ${raw.name}: not one of the ${ctx.offeredIds.size} available players this run considered.`);
+      alerts.push(`Dropped ${ctx.nameOf(raw.player_id)}: not one of the ${ctx.offeredIds.size} available players this run considered.`);
       continue;
     }
     if (seen.has(raw.player_id)) {
-      alerts.push(`Dropped a second entry for ${raw.name}: the same player was ranked twice.`);
+      alerts.push(`Dropped a second entry for ${ctx.nameOf(raw.player_id)}: the same player was ranked twice.`);
       continue;
     }
     seen.add(raw.player_id);
 
     const c = { ...raw };
-    // "No drop" is an empty string and "no bid" is 0, because the response schema cannot
-    // carry nulls — see the note at the top of lib/schema.ts. Clearing means writing the
-    // sentinel back, not writing null.
+    const who = ctx.nameOf(c.player_id);
+    // "No drop" is an empty string and "no bid" is 0 — the response schema carries no
+    // nulls, see the note at the top of lib/schema.ts. Clearing writes the sentinel back.
     const clearDrop = (why: string) => {
       alerts.push(why);
       c.dropPlayerId = "";
-      c.dropName = "";
       c.dropWhy = "";
     };
 
     if (c.dropPlayerId && !ctx.rosterIds.has(c.dropPlayerId)) {
-      clearDrop(`Cleared the suggested drop for ${c.name}: ${c.dropName || c.dropPlayerId} is not on this roster.`);
+      clearDrop(`Cleared the suggested drop for ${who}: ${ctx.nameOf(c.dropPlayerId)} is not on this roster.`);
     } else if (c.dropPlayerId && c.dropPlayerId === c.player_id) {
       // Never drop the player you are adding.
-      clearDrop(`Cleared the suggested drop for ${c.name}: it named the player being added.`);
+      clearDrop(`Cleared the suggested drop for ${who}: it named the player being added.`);
     }
 
     if (!ctx.faab) {
       // A bid in a league with no budget is a category error, not a number to adjust.
       if (c.faabPctLow > 0 || c.faabPctHigh > 0) {
-        alerts.push(`Cleared the FAAB bid for ${c.name}: this league uses waiver priority, not a budget.`);
+        alerts.push(`Cleared the FAAB bid for ${who}: this league uses waiver priority, not a budget.`);
         c.faabPctLow = 0;
         c.faabPctHigh = 0;
       }
     } else if (ctx.faabRemaining != null) {
       if (c.faabPctHigh > ctx.faabRemaining) {
-        alerts.push(`Capped the bid on ${c.name} at ${ctx.faabRemaining}: the suggested ${c.faabPctHigh} is more than this team has left.`);
+        alerts.push(`Capped the bid on ${who} at ${ctx.faabRemaining}: the suggested ${c.faabPctHigh} is more than this team has left.`);
         c.faabPctHigh = ctx.faabRemaining;
       }
       if (c.faabPctLow > ctx.faabRemaining) c.faabPctLow = ctx.faabRemaining;

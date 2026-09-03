@@ -32,7 +32,7 @@ export interface WaiverPromptInput {
 export function buildWaiverSystemPrompt(rules: string, fmt: ScoringFormat, state: LeagueState): string {
   const waiver = state.rules.faab
     ? `- Waivers: FAAB bidding${state.rules.waiverBudget != null ? `, ${state.rules.waiverBudget} budget for the season` : ""}. Give every bid as a percentage range.`
-    : "- Waivers: rolling priority, NOT FAAB. This league has no budget, so return null for both FAAB fields and make your recommendation in terms of whether the claim is worth spending waiver priority on.";
+    : "- Waivers: rolling priority, NOT FAAB. This league has no budget, so return 0 for both FAAB fields and make your recommendation in terms of whether the claim is worth spending waiver priority on.";
 
   return `You are an expert fantasy football advisor working one manager's waiver wire for a specific week.
 
@@ -48,7 +48,9 @@ ${state.rules.tradeDeadline ? `- Trade deadline: week ${state.rules.tradeDeadlin
 
 Hard constraints:
 - Recommend ONLY players from the CANDIDATES list, using the exact player_id given there. Anyone not on that list is either rostered by another team in this league or outside the app's player pool; recommending them is useless to the manager.
-- When a drop is required, name someone from THIS TEAM'S ROSTER, using their exact player_id. If the roster has an open spot, say so and leave the drop fields null.
+- Identify every player by player_id ALONE. The app already has their name, position and team and fills those in itself, so do not spend words repeating them.
+- When a drop is required, give the player_id of someone from THIS TEAM'S ROSTER. If the roster has an open spot, say so and leave dropPlayerId and dropWhy as empty strings.
+- Put the substance in two fields and do not split it further: \`evidence\` is why this is actionable now (usage and its trend, the news behind it, how well established that news is), and \`outlook\` is the week ahead (floor to ceiling, the matchup, and anything this league's scoring changes). In a league without FAAB, the advice about spending waiver priority belongs in \`outlook\`.
 - Never recommend dropping a player you are also recommending be started.
 - Rank by role certainty first, then upside, then next-week matchup — the ruleset's order, not last week's fantasy points.
 - Say which candidates are one-week streams, which are multi-week replacements, and which are stashes. Do not call a player safe when the projection depends on a touchdown, an unresolved injury, or a role nobody has confirmed.

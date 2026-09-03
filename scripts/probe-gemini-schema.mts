@@ -58,7 +58,7 @@ const probes: Probe[] = [
   // The real ones.
   { name: "LiveContext (news lookup — non-fatal, so failure is invisible in the app)", schema: LiveContext, expect: "unknown" },
   { name: "TradeEvaluation", schema: TradeEvaluation, expect: "unknown" },
-  { name: "WaiverRecommendation (the one that 400s)", schema: WaiverRecommendation, expect: "fail" },
+  { name: "WaiverRecommendation", schema: WaiverRecommendation, expect: "pass" },
 ];
 
 const check = async (schema: z.ZodType): Promise<string | null> => {

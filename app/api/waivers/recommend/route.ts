@@ -147,6 +147,7 @@ export async function POST(request: Request) {
       rosterIds: new Set(me.players.map((p) => p.id)),
       faab: state.rules.faab,
       faabRemaining: me.faabRemaining,
+      nameOf: (id) => state.byId.get(id)?.name ?? id,
     });
     out.candidates = kept;
 

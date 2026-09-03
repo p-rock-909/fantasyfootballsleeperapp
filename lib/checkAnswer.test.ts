@@ -4,12 +4,11 @@ import { checkTradeEvaluation, checkTradeProposals, checkWaiverCandidates } from
 import type { TradeEvaluation, TradeProposal, WaiverCandidate } from "./schema";
 
 const candidate = (over: Partial<WaiverCandidate> = {}): WaiverCandidate => ({
-  rank: 1, player_id: "fa1", name: "Free Agent", position: "RB", team: "SF",
-  addType: "starter", score: 70, scoreBreakdown: [], profile: "high floor",
-  confidence: "probable", role: "", news: "", matchup: "", formatFit: "",
-  outlook: "", whyNow: "", mainRisk: "",
-  faabPctLow: 0, faabPctHigh: 0, priorityAdvice: "",
-  dropPlayerId: "", dropName: "", dropWhy: "", decision: "add", ...over,
+  rank: 1, player_id: "fa1",
+  addType: "starter", score: 70,
+  confidence: "probable", evidence: "", outlook: "", mainRisk: "",
+  faabPctLow: 0, faabPctHigh: 0,
+  dropPlayerId: "", dropWhy: "", decision: "add", ...over,
 });
 
 const ctx = (over: Partial<Parameters<typeof checkWaiverCandidates>[1]> = {}) => ({
@@ -17,15 +16,16 @@ const ctx = (over: Partial<Parameters<typeof checkWaiverCandidates>[1]> = {}) =>
   rosterIds: new Set(["mine1", "mine2"]),
   faab: true,
   faabRemaining: 40,
+  nameOf: (id: string) => ({ fa1: "Free Agent", mine1: "Mine", "someone-else": "Not Mine" })[id] ?? id,
   ...over,
 });
 
 // ---- waiver claims ----
 
 test("a claim on someone outside the candidate set is dropped and reported", () => {
-  const { kept, alerts } = checkWaiverCandidates([candidate({ player_id: "nope", name: "Ghost" })], ctx());
+  const { kept, alerts } = checkWaiverCandidates([candidate({ player_id: "nope" })], ctx());
   assert.deepEqual(kept, []);
-  assert.match(alerts[0], /Dropped Ghost: not one of the 2 available players/);
+  assert.match(alerts[0], /Dropped nope: not one of the 2 available players/);
 });
 
 test("the same player ranked twice keeps only the first entry", () => {
@@ -36,21 +36,17 @@ test("the same player ranked twice keeps only the first entry", () => {
 
 test("a drop that is not on the roster is cleared, and the claim survives", () => {
   const { kept, alerts } = checkWaiverCandidates(
-    [candidate({ dropPlayerId: "someone-else", dropName: "Not Mine", dropWhy: "because" })],
+    [candidate({ dropPlayerId: "someone-else", dropWhy: "because" })],
     ctx(),
   );
   assert.equal(kept.length, 1, "the claim itself is still useful");
-  assert.deepEqual(
-    [kept[0].dropPlayerId, kept[0].dropName, kept[0].dropWhy],
-    ["", "", ""],
-    "all three drop fields clear together",
-  );
+  assert.deepEqual([kept[0].dropPlayerId, kept[0].dropWhy], ["", ""], "both drop fields clear together");
   assert.match(alerts[0], /Not Mine is not on this roster/);
 });
 
 test("a drop naming the player being added is cleared", () => {
   const { kept, alerts } = checkWaiverCandidates(
-    [candidate({ dropPlayerId: "fa1", dropName: "Free Agent" })],
+    [candidate({ dropPlayerId: "fa1" })],
     ctx({ rosterIds: new Set(["fa1"]) }),
   );
   assert.equal(kept[0].dropPlayerId, "");
@@ -59,7 +55,7 @@ test("a drop naming the player being added is cleared", () => {
 
 test("a valid drop is left alone", () => {
   const { kept, alerts } = checkWaiverCandidates(
-    [candidate({ dropPlayerId: "mine1", dropName: "Mine", dropWhy: "declining role" })],
+    [candidate({ dropPlayerId: "mine1", dropWhy: "declining role" })],
     ctx(),
   );
   assert.equal(kept[0].dropPlayerId, "mine1");
