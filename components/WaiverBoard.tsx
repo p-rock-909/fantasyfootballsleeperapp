@@ -239,6 +239,10 @@ export default function WaiverBoard({ leagueId }: { leagueId: string }) {
           canRun={!!me}
           teamName={me?.team.name ?? ""}
           faabLeague={state.rules.faab}
+          lookup={(id) => {
+            const p = state.byId.get(id);
+            return p ? { name: p.name, position: p.pos, team: p.team } : undefined;
+          }}
           effort={settings.effort}
           setEffort={(effort: Settings["effort"]) => updateSettings({ effort })}
         />

@@ -93,13 +93,17 @@ export type MatchupRecommendation = z.infer<typeof MatchupRecommendation>;
 //    likely way these calls end as truncated JSON — which surfaces to the user as "the
 //    answer was cut off", with nothing to show for the wait.
 //
-// 2. NOTHING IS NULLABLE. Gemini's schema model has a single `type` plus a separate
-//    nullable flag, and zod encodes `.nullable()` as either a `type` array or an `anyOf`
-//    with a null branch — neither of which survived contact with the API. The two schemas
-//    that have always worked (RecommendationResponse, MatchupRecommendation) contain no
-//    nullable field at all, and that is the shape to copy. Where a value can be absent,
-//    say so with an empty string or 0 and normalize it in lib/checkAnswer.ts, which has
-//    to check it against the league's real rules anyway.
+// 2. NOTHING IS NULLABLE. Absent is an empty string or 0, normalized in
+//    lib/checkAnswer.ts, which has to check the value against the league's real rules
+//    anyway. This is a house rule rather than a hard API limit — it keeps these schemas
+//    the same shape as the two that have always worked.
+//
+// 3. KEEP THEM SMALL. Gemini enforces a complexity budget on `responseJsonSchema` and
+//    rejects anything past it with a bare `400 INVALID_ARGUMENT` naming no field. Measured
+//    against the API with `npm run probe-schema`: an array item with 20 scalar properties
+//    is accepted and 23 is not; add a nested array of objects and the ceiling drops to
+//    about 7 siblings. Do not ask for a field the app already knows — resolve it by id
+//    afterwards — and prefer one paragraph over three overlapping ones.
 
 /** One row of the 100-point framework in content/waiver-rules.md. */
 export type ScoreLine = z.infer<typeof ScoreLineSchema>;
@@ -115,33 +119,35 @@ const IfThenSchema = z.object({
   then: z.string().describe("What to do differently when it happens"),
 });
 
+/**
+ * One waiver claim.
+ *
+ * DELIBERATELY SMALL — see the complexity note above. An earlier version carried 24
+ * fields and Gemini rejected the schema outright. Two kinds of field came out:
+ *
+ *  - Anything the app already knows. `name`, `position` and `team` are looked up from the
+ *    shortlist by `player_id` in the route, which is both cheaper and safer: the model
+ *    can no longer misspell a player into existence.
+ *  - Prose that overlapped. Six separate paragraphs (role, news, matchup, formatFit,
+ *    outlook, whyNow) became `evidence` and `outlook`, and the per-category score
+ *    breakdown went with them — `score` plus the evidence says the same thing without a
+ *    nested array of objects.
+ */
 export const WaiverCandidate = z.object({
   rank: z.number().int().describe("1 is the best claim this week"),
   player_id: z.string().describe("Sleeper player id exactly as given in the CANDIDATES list"),
-  name: z.string(),
-  position: z.string(),
-  team: z.string(),
   addType: z.enum(["starter", "multi-week replacement", "one-week stream", "stash", "avoid"]),
   score: z.number().min(0).max(100).describe("The ruleset's 100-point total"),
-  scoreBreakdown: z.array(ScoreLineSchema).max(7).describe("The ruleset's scoring categories, only those worth explaining"),
-  profile: z.enum(["high floor", "high ceiling", "one-week stream", "multi-week replacement", "speculative stash", "trap"]),
   confidence: z.enum(["confirmed", "probable", "uncertain", "speculative"]).describe("How settled the role is, per the ruleset's news rules"),
-  role: z.string().describe("Expected snaps/routes/touches, and whether they are rising, stable or fragile"),
-  news: z.string().describe("Injury or depth-chart information behind this, and how well established it is"),
-  matchup: z.string().describe("Only the matchup detail that materially changes the projection"),
-  formatFit: z.string().describe("Why this league's scoring, size or lineup changes the call"),
-  outlook: z.string().describe("Floor-to-ceiling summary for the coming week"),
-  whyNow: z.string().describe("The usage, news and role evidence that makes this actionable this week"),
+  evidence: z.string().describe("Why this is actionable now: expected snaps/routes/touches and their trend, the injury or depth-chart news behind it, and how well established that news is"),
+  outlook: z.string().describe("Floor-to-ceiling summary for the coming week, including the matchup and any way this league's scoring changes the call"),
   mainRisk: z.string().describe("Named plainly: committee, unconfirmed injury, weak offence, fragile role"),
   // NOT nullable, and neither is anything else in this file's response schemas. See the
-  // note above: `.nullable()` is how a schema stops being accepted, and "absent" is
-  // expressed with an empty string or 0 instead. The prompt states both conventions, and
-  // lib/checkAnswer.ts normalizes whatever comes back against the league's real rules.
+  // note above: "absent" is an empty string or 0, and lib/checkAnswer.ts normalizes
+  // whatever comes back against the league's real rules.
   faabPctLow: z.number().min(0).max(100).describe("Low end of the suggested bid. 0 in a league that does not use FAAB"),
-  faabPctHigh: z.number().min(0).max(100).describe("High end of the suggested bid. 0 in a league that does not use FAAB"),
-  priorityAdvice: z.string().describe("Whether to spend waiver priority here, in a league that uses it"),
+  faabPctHigh: z.number().min(0).max(100).describe("High end of the suggested bid. 0 in a league that does not use FAAB, where the advice belongs in `outlook` instead"),
   dropPlayerId: z.string().describe("Sleeper id of who to drop, from THIS team's roster. Empty string if a spot is open"),
-  dropName: z.string().describe("Empty string when no drop is needed"),
   dropWhy: z.string().describe("Why that player is the right drop, per the ruleset's drop rules. Empty string when no drop is needed"),
   decision: z.enum(["add", "conditional add", "stash", "stream", "avoid"]),
 });

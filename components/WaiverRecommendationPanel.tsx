@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { LiveContextResult } from "@/lib/liveContext";
 import type { ValidationResult, WaiverMeta, WaiverRecommendation } from "@/lib/schema";
 import type { Settings, WaiverLogEntry } from "@/lib/storage";
-import { Contingencies, Line, ScoreBreakdown, timeLabel, Unknowns, ValidationNotice } from "./AnswerParts";
+import { Contingencies, Line, timeLabel, Unknowns, ValidationNotice } from "./AnswerParts";
 import Grounding from "./Grounding";
 import RawJson from "./RawJson";
 
@@ -59,6 +59,7 @@ export default function WaiverRecommendationPanel({
   canRun,
   teamName,
   faabLeague,
+  lookup,
   effort,
   setEffort,
 }: {
@@ -69,6 +70,8 @@ export default function WaiverRecommendationPanel({
   canRun: boolean;
   teamName: string;
   faabLeague: boolean;
+  /** Resolves a player id to its name/position/team — the answer no longer carries them. */
+  lookup: (playerId: string) => { name: string; position: string; team: string } | undefined;
   effort: Settings["effort"];
   setEffort: (e: Settings["effort"]) => void;
 }) {
@@ -142,7 +145,7 @@ export default function WaiverRecommendationPanel({
           <div>
             <h3 className="mb-1 text-xs uppercase tracking-wide text-zinc-500">Ranked claims</h3>
             <ol className="space-y-2">
-              {d.candidates.map((c) => <Candidate key={c.player_id} c={c} faabLeague={faabLeague} />)}
+              {d.candidates.map((c) => <Candidate key={c.player_id} c={c} faabLeague={faabLeague} lookup={lookup} />)}
             </ol>
           </div>
 
@@ -205,42 +208,55 @@ export default function WaiverRecommendationPanel({
   );
 }
 
-/** One ranked claim: the ruleset's whole per-player output for a single player. */
-function Candidate({ c, faabLeague }: { c: WaiverRecommendation["candidates"][number]; faabLeague: boolean }) {
+/**
+ * One ranked claim.
+ *
+ * `player` and `drop` are resolved from the shortlist and roster by id rather than read
+ * off the answer: the schema deliberately no longer asks the model to echo back names the
+ * app already has. See the size note in lib/schema.ts.
+ */
+function Candidate({
+  c,
+  faabLeague,
+  lookup,
+}: {
+  c: WaiverRecommendation["candidates"][number];
+  faabLeague: boolean;
+  lookup: (playerId: string) => { name: string; position: string; team: string } | undefined;
+}) {
+  const p = lookup(c.player_id);
+  const drop = c.dropPlayerId ? lookup(c.dropPlayerId) : undefined;
+
   return (
     <li className="rounded-md border border-zinc-800 p-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="w-5 shrink-0 text-sm font-bold tabular-nums text-zinc-500">{c.rank}</span>
-        <span className={`pill pos-${c.position}`}>{c.position}</span>
-        <span className="font-semibold">{c.name}</span>
-        <span className="text-xs text-zinc-500">{c.team}</span>
+        {p && <span className={`pill pos-${p.position}`}>{p.position}</span>}
+        <span className="font-semibold">{p?.name ?? c.player_id}</span>
+        {p && <span className="text-xs text-zinc-500">{p.team}</span>}
         <span className={`pill ${ADD_TYPE_STYLE[c.addType]}`}>{c.addType}</span>
         <span className={`pill ${CONFIDENCE_STYLE[c.confidence]}`}>{c.confidence}</span>
         <span className="ml-auto text-sm font-semibold tabular-nums" title="The ruleset's 100-point score">{Math.round(c.score)}</span>
       </div>
 
-      <p className="mt-1 text-sm text-zinc-300">{c.whyNow}</p>
+      <p className="mt-1 text-sm text-zinc-300">{c.evidence}</p>
 
       <dl className="mt-2 space-y-1 text-xs">
-        <Line term="Role" text={c.role} />
-        <Line term="News" text={c.news} />
-        <Line term="Matchup" text={c.matchup} />
         <Line term="Outlook" text={c.outlook} />
-        <Line term="Format" text={c.formatFit} />
         <Line term="Risk" text={c.mainRisk} className="text-amber-200" />
       </dl>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="pill bg-zinc-800 text-zinc-200">{c.decision}</span>
-        {faabLeague && c.faabPctHigh > 0 ? (
+        {faabLeague && c.faabPctHigh > 0 && (
           <span className="text-zinc-400">Bid <b className="text-zinc-100">{c.faabPctLow}–{c.faabPctHigh}%</b> of budget</span>
-        ) : (
-          <span className="text-zinc-400">{c.priorityAdvice}</span>
         )}
-        {c.dropName && <span className="text-zinc-400">Drop <b className="text-zinc-100">{c.dropName}</b>{c.dropWhy ? ` — ${c.dropWhy}` : ""}</span>}
+        {c.dropPlayerId && (
+          <span className="text-zinc-400">
+            Drop <b className="text-zinc-100">{drop?.name ?? c.dropPlayerId}</b>{c.dropWhy ? ` — ${c.dropWhy}` : ""}
+          </span>
+        )}
       </div>
-
-      <ScoreBreakdown lines={c.scoreBreakdown} />
     </li>
   );
 }
@@ -282,7 +298,7 @@ function HistoryEntry({ entry }: { entry: WaiverLogEntry }) {
             <ol className="space-y-0.5">
               {entry.data.candidates.map((c) => (
                 <li key={c.player_id}>
-                  <span className="text-zinc-500">{c.rank}.</span> <b>{c.name}</b>{" "}
+                  <span className="text-zinc-500">{c.rank}.</span> <b>{c.player_id}</b>{" "}
                   <span className="text-zinc-500">{c.addType}{c.faabPctHigh > 0 ? ` · up to ${c.faabPctHigh}%` : ""}</span>
                 </li>
               ))}
