@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
+import { geminiJsonSchema } from "./llm/gemini";
 import { LiveContext } from "./liveContext";
 import { MatchupRecommendation, RecommendationResponse, TradeEvaluation, TradeProposals, WaiverRecommendation } from "./schema";
 
@@ -117,4 +118,73 @@ for (const [name, schema] of [
 test("the unbounded-array check actually catches a missing .max()", () => {
   assert.deepEqual(unboundedArrays(z.toJSONSchema(z.object({ xs: z.array(z.string()) }))), ["$.xs"]);
   assert.deepEqual(unboundedArrays(z.toJSONSchema(z.object({ xs: z.array(z.string()).max(3) }))), []);
+});
+
+/**
+ * What actually goes on the wire.
+ *
+ * The keyword check above passes zod's raw output, but `geminiJsonSchema()` is what the
+ * request carries, and two constructs in that output drew a bare `400 INVALID_ARGUMENT`
+ * from Gemini with no indication of which field was at fault:
+ *
+ *  - `anyOf: [X, {type: "null"}]`, which zod emits for a *constrained* nullable such as
+ *    `z.number().min(0).max(100).nullable()`. A plain `.nullable()` emits
+ *    `type: [..., "null"]` instead, and that shape has always worked.
+ *  - the JavaScript safe-integer bounds `z.number().int()` attaches as minimum/maximum.
+ *
+ * Asserted over every schema, including the ones that predate the problem, so the check
+ * is about what Gemini accepts rather than about which feature happened to hit it.
+ */
+function shapesIn(node: unknown, path = "$", out: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    node.forEach((child, i) => shapesIn(child, `${path}[${i}]`, out));
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  const obj = node as Record<string, unknown>;
+
+  if (Array.isArray(obj.anyOf) && obj.anyOf.some((b) => (b as Record<string, unknown>)?.type === "null")) {
+    out.push(`${path}: anyOf with a null branch`);
+  }
+  if (obj.minimum === -Number.MAX_SAFE_INTEGER || obj.maximum === Number.MAX_SAFE_INTEGER) {
+    out.push(`${path}: safe-integer bound from .int()`);
+  }
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "properties" && value && typeof value === "object") {
+      for (const [name, child] of Object.entries(value)) shapesIn(child, `${path}.${name}`, out);
+    } else {
+      shapesIn(value, `${path}.${key}`, out);
+    }
+  }
+  return out;
+}
+
+for (const [name, schema] of SCHEMAS) {
+  test(`${name} is sent to Gemini without a construct it rejects`, () => {
+    const bad = shapesIn(geminiJsonSchema(schema));
+    assert.deepEqual(bad, [], `${name} would send: ${bad.join("; ")}`);
+  });
+}
+
+test("the sent-shape check catches both constructs before the rewrite strips them", () => {
+  // Raw zod output for exactly the two fields that broke the waiver call.
+  const raw = z.toJSONSchema(z.object({
+    faabPctLow: z.number().min(0).max(100).nullable(),
+    rank: z.number().int(),
+  }));
+  const found = shapesIn(raw).join("; ");
+  assert.match(found, /anyOf with a null branch/);
+  assert.match(found, /safe-integer bound/);
+});
+
+test("the rewrite preserves meaning: nullable stays nullable, bounds stay enforced", () => {
+  const sent = geminiJsonSchema(z.object({ pct: z.number().min(0).max(100).nullable(), n: z.number().int() })) as {
+    properties: { pct: Record<string, unknown>; n: Record<string, unknown> };
+  };
+  assert.deepEqual(sent.properties.pct.type, ["number", "null"], "null is still an allowed value");
+  assert.equal(sent.properties.pct.minimum, 0, "the range survives the collapse");
+  assert.equal(sent.properties.pct.maximum, 100);
+  assert.equal(sent.properties.n.type, "integer", "still an integer, just without the useless bounds");
+  assert.equal(sent.properties.n.minimum, undefined);
 });
