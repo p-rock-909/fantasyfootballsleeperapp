@@ -27,6 +27,8 @@ export interface WaiverRecState {
   shortlist: ShortlistRow[] | null;
   validation: ValidationResult | null;
   error: string | null;
+  /** Whatever the route attached to a failure — for a Gemini 400, the schema it sent. */
+  errorDetail: unknown;
   meta: WaiverMeta | null;
   id: string | null;
 }
@@ -115,7 +117,14 @@ export default function WaiverRecommendationPanel({
           {rec.stage === "news" ? "Searching for snap shares, depth-chart moves and injury news…" : "Ranking the waiver wire against the rules…"}
         </div>
       )}
-      {rec.error && <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">{rec.error}</div>}
+      {rec.error && (
+        <div className="rounded-md border border-red-900 bg-red-950/50 px-3 py-2 text-sm text-red-200">
+          {rec.error}
+          {/* A Gemini 400 names no field, so the route attaches what it sent. Showing it
+              here is the difference between diagnosing this and guessing at it. */}
+          {rec.errorDetail != null && <RawJson value={rec.errorDetail} />}
+        </div>
+      )}
       {!rec.loading && !d && !rec.error && (
         <p className="text-sm text-zinc-500">
           Pick a week and a team, then press <b>Find pickups</b> to rank the unrostered players {teamName ? `available to ${teamName}` : "in this league"}.
