@@ -14,14 +14,15 @@ const SAFE_INT_MAX = Number.MAX_SAFE_INTEGER;
 /**
  * Rewrite the parts of zod's JSON Schema that Gemini will not take.
  *
- * Two rewrites, both narrow:
- *  - Drop the safe-integer bounds described above.
- *  - Collapse `anyOf: [X, {type: "null"}]` — what zod emits for a *constrained* nullable
- *    like `z.number().min(0).max(100).nullable()` — into `type: [..., "null"]`, which is
- *    what it emits for a plain `.nullable()` and what the start/sit feature has been
- *    sending successfully all along.
+ * One rewrite: drop the safe-integer bounds described above. It is shape-preserving —
+ * the same documents validate before and after.
  *
- * Both are shape-preserving: the same documents validate before and after.
+ * There is deliberately NO rewrite for nullability. An earlier attempt collapsed
+ * `anyOf: [X, {type:"null"}]` into `type: [..., "null"]`, which traded one rejected
+ * encoding for another: Gemini's schema model has a single `type` plus a separate
+ * nullable flag, so a `type` array has nowhere to go. Response schemas avoid nullable
+ * fields entirely instead — see the note at the top of lib/schema.ts — and
+ * lib/schema.test.ts fails the build if one reappears.
  */
 function forGemini(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(forGemini);
@@ -39,16 +40,6 @@ function forGemini(node: unknown): unknown {
   if (out.type === "integer" && out.minimum === -SAFE_INT_MAX && out.maximum === SAFE_INT_MAX) {
     delete out.minimum;
     delete out.maximum;
-  }
-
-  const branches = out.anyOf;
-  if (Array.isArray(branches) && branches.length === 2) {
-    const nullAt = branches.findIndex((b) => (b as Record<string, unknown>)?.type === "null");
-    const other = branches[1 - nullAt] as Record<string, unknown> | undefined;
-    if (nullAt !== -1 && other && typeof other.type === "string") {
-      delete out.anyOf;
-      Object.assign(out, other, { type: [other.type, "null"] });
-    }
   }
 
   return out;

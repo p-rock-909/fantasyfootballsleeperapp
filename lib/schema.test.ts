@@ -143,8 +143,14 @@ function shapesIn(node: unknown, path = "$", out: string[] = []): string[] {
   if (!node || typeof node !== "object") return out;
   const obj = node as Record<string, unknown>;
 
+  // Both encodings zod produces for `.nullable()`. Gemini's schema model has one `type`
+  // plus a separate nullable flag, so neither has anywhere to land, and swapping one for
+  // the other just moves the failure. Response schemas carry no nullable field at all.
   if (Array.isArray(obj.anyOf) && obj.anyOf.some((b) => (b as Record<string, unknown>)?.type === "null")) {
-    out.push(`${path}: anyOf with a null branch`);
+    out.push(`${path}: anyOf with a null branch (use a sentinel instead of .nullable())`);
+  }
+  if (Array.isArray(obj.type)) {
+    out.push(`${path}: "type" as an array — ${JSON.stringify(obj.type)} (use a sentinel instead of .nullable())`);
   }
   if (obj.minimum === -Number.MAX_SAFE_INTEGER || obj.maximum === Number.MAX_SAFE_INTEGER) {
     out.push(`${path}: safe-integer bound from .int()`);
@@ -167,24 +173,26 @@ for (const [name, schema] of SCHEMAS) {
   });
 }
 
-test("the sent-shape check catches both constructs before the rewrite strips them", () => {
-  // Raw zod output for exactly the two fields that broke the waiver call.
-  const raw = z.toJSONSchema(z.object({
-    faabPctLow: z.number().min(0).max(100).nullable(),
-    rank: z.number().int(),
-  }));
-  const found = shapesIn(raw).join("; ");
-  assert.match(found, /anyOf with a null branch/);
-  assert.match(found, /safe-integer bound/);
+test("the check catches both encodings zod uses for a nullable field", () => {
+  // A *constrained* nullable becomes an anyOf; a plain one becomes a type array. Both
+  // were tried against Gemini, and both were rejected — which is why the rule is "no
+  // nullable in a response schema" rather than "prefer one encoding".
+  assert.match(shapesIn(z.toJSONSchema(z.object({ a: z.number().min(0).max(100).nullable() }))).join(), /anyOf with a null branch/);
+  assert.match(shapesIn(z.toJSONSchema(z.object({ b: z.string().nullable() }))).join(), /"type" as an array/);
 });
 
-test("the rewrite preserves meaning: nullable stays nullable, bounds stay enforced", () => {
-  const sent = geminiJsonSchema(z.object({ pct: z.number().min(0).max(100).nullable(), n: z.number().int() })) as {
-    properties: { pct: Record<string, unknown>; n: Record<string, unknown> };
-  };
-  assert.deepEqual(sent.properties.pct.type, ["number", "null"], "null is still an allowed value");
-  assert.equal(sent.properties.pct.minimum, 0, "the range survives the collapse");
-  assert.equal(sent.properties.pct.maximum, 100);
+test("the check catches the safe-integer bounds, and geminiJsonSchema strips them", () => {
+  const withInt = z.object({ n: z.number().int() });
+  assert.match(shapesIn(z.toJSONSchema(withInt)).join(), /safe-integer bound/);
+
+  const sent = geminiJsonSchema(withInt) as { properties: { n: Record<string, unknown> } };
   assert.equal(sent.properties.n.type, "integer", "still an integer, just without the useless bounds");
   assert.equal(sent.properties.n.minimum, undefined);
+  assert.equal(sent.properties.n.maximum, undefined);
+});
+
+test("a sentinel expresses absence without a nullable", () => {
+  // The shape the waiver schema uses now: 0 for "no bid", "" for "no drop".
+  const sent = geminiJsonSchema(z.object({ faabPctLow: z.number().min(0).max(100), dropName: z.string() }));
+  assert.deepEqual(shapesIn(sent), []);
 });

@@ -367,7 +367,7 @@ function HistoryEntry({ entry }: { entry: TradeLogEntry }) {
               ))}
             </ul>
           )}
-          <RawJson value={{ evaluation: entry.evaluation, proposals: entry.proposals, validation: entry.validation, error: entry.error, meta: entry.meta }} />
+          <RawJson value={{ evaluation: entry.evaluation, proposals: entry.proposals, validation: entry.validation, error: entry.error, errorDetail: entry.errorDetail, meta: entry.meta }} />
         </div>
       )}
     </li>

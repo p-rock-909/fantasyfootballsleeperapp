@@ -159,8 +159,9 @@ export default function WaiverBoard({ leagueId }: { leagueId: string }) {
       });
     } catch (e) {
       const message = (e as Error).message;
-      appendWaiverLog(leagueId, week, rosterId, { ...base, data: null, validation: null, error: message, meta: null });
-      setRec({ ...IDLE, error: message, errorDetail: e instanceof RunFailed ? e.detail : null, id });
+      const detail = e instanceof RunFailed ? e.detail : null;
+      appendWaiverLog(leagueId, week, rosterId, { ...base, data: null, validation: null, error: message, errorDetail: detail, meta: null });
+      setRec({ ...IDLE, error: message, errorDetail: detail, id });
     } finally {
       clearTimeout(toRank);
     }

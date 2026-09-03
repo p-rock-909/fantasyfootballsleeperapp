@@ -232,7 +232,7 @@ function Candidate({ c, faabLeague }: { c: WaiverRecommendation["candidates"][nu
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="pill bg-zinc-800 text-zinc-200">{c.decision}</span>
-        {faabLeague && c.faabPctLow != null && c.faabPctHigh != null ? (
+        {faabLeague && c.faabPctHigh > 0 ? (
           <span className="text-zinc-400">Bid <b className="text-zinc-100">{c.faabPctLow}–{c.faabPctHigh}%</b> of budget</span>
         ) : (
           <span className="text-zinc-400">{c.priorityAdvice}</span>
@@ -283,12 +283,12 @@ function HistoryEntry({ entry }: { entry: WaiverLogEntry }) {
               {entry.data.candidates.map((c) => (
                 <li key={c.player_id}>
                   <span className="text-zinc-500">{c.rank}.</span> <b>{c.name}</b>{" "}
-                  <span className="text-zinc-500">{c.addType}{c.faabPctHigh != null ? ` · up to ${c.faabPctHigh}%` : ""}</span>
+                  <span className="text-zinc-500">{c.addType}{c.faabPctHigh > 0 ? ` · up to ${c.faabPctHigh}%` : ""}</span>
                 </li>
               ))}
             </ol>
           )}
-          <RawJson value={{ recommendation: entry.data, validation: entry.validation, error: entry.error, meta: entry.meta }} />
+          <RawJson value={{ recommendation: entry.data, validation: entry.validation, error: entry.error, errorDetail: entry.errorDetail, meta: entry.meta }} />
         </div>
       )}
     </li>

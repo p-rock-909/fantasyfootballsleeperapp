@@ -85,10 +85,21 @@ export type MatchupRecommendation = z.infer<typeof MatchupRecommendation>;
 
 // ---- Waivers and trades ----
 //
-// Every array here is bounded. `MAX_OUTPUT_TOKENS` in lib/llm/gemini.ts is shared with
-// the thinking budget, so an unbounded list of richly-described candidates is the most
-// likely way these calls end as truncated JSON — which surfaces to the user as "the
-// answer was cut off", with nothing to show for the wait.
+// Two rules hold for every response schema below, and both are enforced by
+// lib/schema.test.ts against the payload `geminiJsonSchema()` actually sends.
+//
+// 1. EVERY ARRAY IS BOUNDED. `MAX_OUTPUT_TOKENS` in lib/llm/gemini.ts is shared with the
+//    thinking budget, so an unbounded list of richly-described candidates is the most
+//    likely way these calls end as truncated JSON — which surfaces to the user as "the
+//    answer was cut off", with nothing to show for the wait.
+//
+// 2. NOTHING IS NULLABLE. Gemini's schema model has a single `type` plus a separate
+//    nullable flag, and zod encodes `.nullable()` as either a `type` array or an `anyOf`
+//    with a null branch — neither of which survived contact with the API. The two schemas
+//    that have always worked (RecommendationResponse, MatchupRecommendation) contain no
+//    nullable field at all, and that is the shape to copy. Where a value can be absent,
+//    say so with an empty string or 0 and normalize it in lib/checkAnswer.ts, which has
+//    to check it against the league's real rules anyway.
 
 /** One row of the 100-point framework in content/waiver-rules.md. */
 export type ScoreLine = z.infer<typeof ScoreLineSchema>;
@@ -122,16 +133,16 @@ export const WaiverCandidate = z.object({
   outlook: z.string().describe("Floor-to-ceiling summary for the coming week"),
   whyNow: z.string().describe("The usage, news and role evidence that makes this actionable this week"),
   mainRisk: z.string().describe("Named plainly: committee, unconfirmed injury, weak offence, fragile role"),
-  // Nullable because a league on rolling waivers has no budget to bid. The prompt says so;
-  // a required number would force the model to invent a percentage.
-  faabPctLow: z.number().min(0).max(100).nullable().describe("Low end of the suggested bid, or null in a non-FAAB league"),
-  faabPctHigh: z.number().min(0).max(100).nullable().describe("High end of the suggested bid, or null in a non-FAAB league"),
+  // NOT nullable, and neither is anything else in this file's response schemas. See the
+  // note above: `.nullable()` is how a schema stops being accepted, and "absent" is
+  // expressed with an empty string or 0 instead. The prompt states both conventions, and
+  // lib/checkAnswer.ts normalizes whatever comes back against the league's real rules.
+  faabPctLow: z.number().min(0).max(100).describe("Low end of the suggested bid. 0 in a league that does not use FAAB"),
+  faabPctHigh: z.number().min(0).max(100).describe("High end of the suggested bid. 0 in a league that does not use FAAB"),
   priorityAdvice: z.string().describe("Whether to spend waiver priority here, in a league that uses it"),
-  // Flattened rather than a nullable object: no schema in this app has sent Gemini a
-  // nullable object, and the keyword check in schema.test.ts would not catch it failing.
-  dropPlayerId: z.string().nullable().describe("Sleeper id of who to drop, from THIS team's roster. Null if a spot is open"),
-  dropName: z.string().nullable(),
-  dropWhy: z.string().nullable().describe("Why that player is the right drop, per the ruleset's drop rules"),
+  dropPlayerId: z.string().describe("Sleeper id of who to drop, from THIS team's roster. Empty string if a spot is open"),
+  dropName: z.string().describe("Empty string when no drop is needed"),
+  dropWhy: z.string().describe("Why that player is the right drop, per the ruleset's drop rules. Empty string when no drop is needed"),
   decision: z.enum(["add", "conditional add", "stash", "stream", "avoid"]),
 });
 

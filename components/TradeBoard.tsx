@@ -174,7 +174,7 @@ export default function TradeBoard({ leagueId }: { leagueId: string }) {
       });
     } catch (e) {
       const message = (e as Error).message;
-      appendTradeLog(leagueId, { ...base, evaluation: null, proposals: null, validation: null, error: message, meta: null });
+      appendTradeLog(leagueId, { ...base, evaluation: null, proposals: null, validation: null, error: message, errorDetail: e instanceof RunFailed ? e.detail : null, meta: null });
       setRec({ ...IDLE, error: message, errorDetail: e instanceof RunFailed ? e.detail : null, id });
     } finally {
       clearTimeout(toThink);
